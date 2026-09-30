@@ -78,7 +78,17 @@ recorded here rather than made there, per the brief.
    results table. Worked around by keeping narration off the stdout path, but a
    `verbose=False` flag would be better.
 
-None of these block Milestone 1 or Milestone 2.
+5. **Fix the spelling of `TAMU_assintant_key`.** `LLMClient` reads
+   `TAMU_assintant_key` before `TAMU_API_KEY`; the first is missing an `s`.
+   The name exists for a real reason — an exported shell variable beats one
+   set in `.env`, so a distinct name sidesteps the collision without touching
+   anyone's shell configuration — but the reason argues for a correctly spelled
+   distinct name, such as `TAMU_ASSISTANT_KEY`. As it stands, every consumer
+   has to reproduce a typo to be understood, and anyone who spells it correctly
+   gets silence rather than an error. Reading both, and preferring the correct
+   spelling, would fix it without breaking existing setups.
+
+None of these block a working pipeline.
 
 ## How the reviewer is used
 
