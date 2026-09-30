@@ -13,9 +13,11 @@
   --ink-faint: #8a8a82;
   --line: #e2e2dc;
   --line-strong: #c9c9c0;
-  --accent: #6b4e2e;
+  --accent: #500000;          /* Texas A&M maroon */
   --accent-ink: #ffffff;
-  --accent-soft: #f0e7db;
+  --accent-soft: #f4eaea;
+  --accent-line: #d8bfbf;
+  --accent-hover: #6d1414;  /* maroon is too dark for a brightness filter to read */
   --ok: #2f6b3f;
   --warn: #8a5a00;
   --warn-soft: #fdf3e0;
@@ -44,7 +46,7 @@ body {
 
 /* --- masthead --- */
 
-.masthead { margin-bottom: 32px; }
+.masthead { margin-bottom: 32px; text-align: center; }
 .masthead h1 {
   margin: 0;
   font-size: 26px;
@@ -52,22 +54,12 @@ body {
   font-weight: 620;
 }
 .masthead p {
-  margin: 6px 0 0;
+  /* No max-width and no nowrap: the sentence is short enough to sit on one
+     line at reading width, and still wraps rather than overflowing on a
+     phone, which nowrap would not. */
+  margin: 8px 0 0;
   color: var(--ink-soft);
-  max-width: 60ch;
 }
-.badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-.badge {
-  font-size: 12px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--line-strong);
-  color: var(--ink-soft);
-  background: var(--panel);
-}
-.badge.on { color: var(--ok); border-color: currentColor; }
-.badge.off { color: var(--ink-faint); }
-
 /* --- steps --- */
 
 .step {
@@ -91,6 +83,7 @@ body {
   height: 24px;
   border-radius: 50%;
   background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
   color: var(--accent);
   font-size: 12px;
   font-weight: 700;
@@ -131,12 +124,17 @@ button {
   background: var(--accent);
   color: var(--accent-ink);
 }
-button:hover:not(:disabled) { filter: brightness(1.08); }
+button:hover:not(:disabled) { background: var(--accent-hover); }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 button.quiet {
   background: transparent;
   color: var(--ink-soft);
   border-color: var(--line-strong);
+}
+button.quiet:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
 }
 
 .hint { color: var(--ink-faint); font-size: 13px; }
@@ -218,6 +216,7 @@ td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .turn.reader {
   align-self: flex-end;
   background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
   color: var(--ink);
 }
 .turn.model { align-self: flex-start; background: var(--bg); border: 1px solid var(--line); }

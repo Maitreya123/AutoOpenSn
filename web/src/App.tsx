@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, pollJob, type Health, type Job, type Narrative, type SpecDraft, type TableRow } from "./api";
+import { api, pollJob, type Job, type Narrative, type SpecDraft, type TableRow } from "./api";
 import Step from "./components/Step";
 import ResultsTable from "./components/ResultsTable";
 import Chat, { type Turn } from "./components/Chat";
@@ -17,10 +17,9 @@ import Chat, { type Turn } from "./components/Chat";
 const EXAMPLE = "compare GMRES tolerances 1e-4, 1e-6 and 1e-8 on the 1D transport problem";
 
 export default function App() {
-  const [health, setHealth] = useState<Health | null>(null);
-
   const [prompt, setPrompt] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
   const [draft, setDraft] = useState<SpecDraft | null>(null);
   const [specError, setSpecError] = useState<string | null>(null);
 
@@ -33,9 +32,16 @@ export default function App() {
   const [thinking, setThinking] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
 
+  // Usually a second or two. The counter is here for the times it is not —
+  // a slow provider, or a knowledge pack being opened for the first time —
+  // because a spinner with no clock reads as a hang.
   useEffect(() => {
-    api.health().then(setHealth).catch(() => setHealth(null));
-  }, []);
+    if (!generating) return;
+    setElapsed(0);
+    const started = Date.now();
+    const tick = setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(tick);
+  }, [generating]);
 
   const table: TableRow[] = job?.table ?? [];
   const haveResults = job?.status === "succeeded" && table.length > 0;
@@ -157,16 +163,7 @@ export default function App() {
     <div className="shell">
       <header className="masthead">
         <h1>AutoOpenSn</h1>
-        <p>
-          Describe a neutron transport study in plain language. It becomes a
-          validated input spec, the spec is run, and the results are explained.
-        </p>
-        <div className="badges">
-          <span className={`badge ${health?.llm_available ? "on" : "off"}`}>
-            {health?.llm_available ? "model ready" : "no model"}
-          </span>
-          {health ? <span className="badge">OpenSn @ {health.pack_commit.slice(0, 7)}</span> : null}
-        </div>
+        <p>Describe a transport study in plain language. It becomes a validated spec, is run, and explained.</p>
       </header>
 
       {/* 1 --------------------------------------------------------------- */}
@@ -180,7 +177,14 @@ export default function App() {
         />
         <div className="row">
           <button onClick={generate} disabled={generating || !prompt.trim()}>
-            {generating ? <><span className="spinner" />Writing the spec…</> : "Generate spec"}
+            {generating ? (
+              <>
+                <span className="spinner" />
+                Writing the spec…{elapsed > 3 ? ` ${elapsed}s` : ""}
+              </>
+            ) : (
+              "Generate spec"
+            )}
           </button>
           {!prompt && (
             <button className="quiet" onClick={() => setPrompt(EXAMPLE)} disabled={generating}>
@@ -201,7 +205,11 @@ export default function App() {
         number={2}
         title="The input spec"
         state={!draft?.ok ? "waiting" : haveResults ? "done" : "active"}
-        aside={draft?.ok ? `${draft.cases} run${draft.cases === 1 ? "" : "s"} · ${draft.summary}` : undefined}
+        aside={
+          draft?.ok
+            ? `${draft.cases} run${draft.cases === 1 ? "" : "s"} · ${draft.summary} · ${draft.elapsed.toFixed(1)}s`
+            : undefined
+        }
       >
         {!draft?.ok ? (
           <p className="hint">Appears once a spec has been written.</p>
