@@ -65,7 +65,7 @@ table becomes prose.
 | Parsing | `autoopensn/parse/` | Built |
 | Run cache | `autoopensn/store/` | Built |
 | Results to narrative | `autoopensn/narrate/` | Built |
-| Interface | `autoopensn/ui/`, `autoopensn/cli.py` | Streamlit page and CLI |
+| Interface | `web/`, `autoopensn/api/`, `autoopensn/cli.py` | React page, HTTP API, and CLI |
 
 The 1D scenarios compute for real, in under a second, using this package's own
 solver. Scenarios beyond one dimension need OpenSn itself, which is not
@@ -111,33 +111,41 @@ in this repository builds, installs, or submits anything on your behalf.
 ```shell
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev,ui]"
+pip install -e ".[dev,api]"
 cp .env.example .env    # only needed for the narration stages
+
+cd web && npm install   # the interface
 ```
 
 ## Usage
 
 ### The interface
 
+Two processes: the engine, and the page.
+
 ```shell
-autoopensn ui              # or: streamlit run autoopensn/ui/app.py
+autoopensn serve        # the API, on :8000
+cd web && npm run dev   # the interface, on :5173
 ```
 
-One tab for the pipeline, two for reference:
+Then open <http://localhost:5173>. Four steps, in order, with nothing to
+configure:
 
-- **Ask** is the whole flow. A request in plain language becomes a spec, which
-  you can edit or replace from a file, whose rendered script you can read and
-  diff against the tutorial it came from, which you then run, and which is
-  finally explained. The narrative stage flags any figure in its own prose that
-  is not in the results table.
-- **Scenarios** browses the 40 tutorials, their parameters, their ranges, and
-  where each range came from.
-- **Knowledge pack** searches the version-pinned OpenSn documentation and source
-  for the commit this study targets, with a citation on every hit.
+1. **Describe the study** in plain language.
+2. **Read the spec** it wrote, and download it as YAML or JSON.
+3. **Run it**, watching each case complete.
+4. **Read what the numbers show**, and ask follow-up questions.
 
-The page never shows a number that did not come out of the results table, and it
-says plainly when a value is replayed from a fixture rather than measured, or
-derived rather than logged.
+The engine's options — which runner, whether to use the cache, where the
+fixtures are — are not on the screen. They are in the API and the CLI, where
+scripts and tests reach them. The interface picks the best runner available: the
+cluster when it can be reached, this package's own solver when it cannot.
+
+What it never hides is **which engine produced the numbers**, stated in words
+above the table. A results table that does not say where it came from is a table
+nobody should quote. It also flags any figure in its own prose that is not in
+the table, and says when a value was replayed from a fixture rather than
+measured, or derived rather than logged.
 
 ### The command line
 
@@ -151,6 +159,7 @@ autoopensn render study.yaml -o runs/render                    # spec -> scripts
 autoopensn run study.yaml                                      # spec -> results table
 autoopensn explain results.csv study.yaml                      # table -> narrative (LLM)
 autoopensn study "compare GMRES tolerances ..."                # all of the above
+autoopensn serve                                               # the same, over HTTP
 ```
 
 `spec` and `explain` are the two stages that call a language model. Everything

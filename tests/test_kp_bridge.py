@@ -54,12 +54,12 @@ def test_only_the_bridge_imports_the_sister_repository():
     assert not offenders, "\n".join(offenders)
 
 
-# The Streamlit page is executed as a script rather than imported as a module,
-# so it has to put *this repository* on the path before its first autoopensn
-# import. That is a different act from putting the *sister* repository there,
-# which is what this constraint exists to confine, and the test above already
-# forbids it importing anything from ``src``.
-SYS_PATH_ALLOWED = {"kp_bridge.py", "app.py"}
+# Nothing but the bridge. This used to carry an exemption for the Streamlit
+# page, which ran as a script and so had to put *this* repository on the path
+# before its first import. With the page gone the exemption goes with it, and
+# the constraint is now exactly what it always claimed to be: one module
+# touches sys.path.
+SYS_PATH_ALLOWED = {"kp_bridge.py"}
 
 
 def test_nothing_else_mutates_sys_path():
@@ -71,14 +71,6 @@ def test_nothing_else_mutates_sys_path():
         if "sys.path.append" in text or "sys.path.insert" in text:
             offenders.append(str(path.relative_to(PACKAGE.parent)))
     assert not offenders, offenders
-
-
-def test_the_page_puts_only_this_repository_on_the_path():
-    """The exemption above is narrow, and this is what keeps it narrow."""
-    text = (PACKAGE / "ui" / "app.py").read_text()
-    for line in text.splitlines():
-        if "sys.path" in line and not line.strip().startswith("#"):
-            assert "_ROOT" in line, line
 
 
 def test_the_pinned_commit_is_stated_once():

@@ -190,7 +190,7 @@ def llm_client(quiet: bool = True):
     and ``max_tokens``. Keys come from ``.env``; see ``.env.example``.
 
     ``quiet`` captures the provider-selection banners the client prints to
-    stdout on construction. They are useful in a Streamlit app and are noise in
+    stdout on construction. They are useful in an interactive session and are noise in
     a command whose stdout is a results table. The captured text is returned on
     the client as ``startup_banner`` so a caller can still show it.
     """

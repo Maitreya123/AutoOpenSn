@@ -64,7 +64,7 @@ recorded here rather than made there, per the brief.
 
 2. **Let `PackSearcher` take an opened connection or a read-only flag.** It opens
    SQLite with `check_same_thread=False` and holds the connection for its
-   lifetime. Fine for a Streamlit app; awkward for a CLI that wants a short-lived
+   lifetime. Fine for a long-lived API process; awkward for a CLI that wants a short-lived
    read. Not blocking, and worked around here by caching the searcher.
 
 3. **Separate `SMEReviewer` from `src.config`.** `reviewer.from_config` reads
@@ -103,7 +103,7 @@ validated like any other, and discarded if it fails. See
 
 The client is also reused for both narration stages, through
 `kp_bridge.llm_client(quiet=True)`. The `quiet` flag captures the provider
-banners the client prints on construction, which are useful in a Streamlit app
+banners the client prints on construction, which are useful in a terminal
 and are noise in a command whose stdout is a results table.
 
 ## Data flowing the other way

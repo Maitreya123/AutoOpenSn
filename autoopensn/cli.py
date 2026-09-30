@@ -129,41 +129,6 @@ def serve(
 
 
 @app.command()
-def ui(
-    port: int = typer.Option(8501, help="Port to serve on."),
-    headless: bool = typer.Option(True, help="Do not open a browser automatically."),
-) -> None:
-    """Launch the Streamlit interface.
-
-    The page is a front end over the same functions these commands call, so
-    anything it shows can also be produced here, and anything produced here
-    shows up there.
-    """
-    import subprocess
-
-    from autoopensn.ui import APP_PATH
-
-    command = [
-        sys.executable,
-        "-m",
-        "streamlit",
-        "run",
-        str(APP_PATH),
-        "--server.port",
-        str(port),
-        "--server.headless",
-        "true" if headless else "false",
-    ]
-    try:
-        raise SystemExit(subprocess.call(command))
-    except FileNotFoundError:
-        _fail(
-            "streamlit is not installed. Install the interface extra:\n"
-            "    pip install -e '.[ui]'"
-        )
-
-
-@app.command()
 def version() -> None:
     """Print the version and the pinned OpenSn commit."""
     typer.echo(f"autoopensn {__version__}")
