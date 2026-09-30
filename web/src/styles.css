@@ -1,6 +1,9 @@
 /* One column, four steps, nothing to configure.
-   Tokens are defined once on :root and only redefined under a dark media
-   query, so no colour has its sole definition inside a conditional block. */
+
+   Light only, by request. `color-scheme: light` is set explicitly rather than
+   left to the system, so a viewer whose OS is in dark mode still gets form
+   controls and scrollbars that match the page instead of dark widgets on a
+   pale ground. */
 
 :root {
   --bg: #f7f7f5;
@@ -21,27 +24,6 @@
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --radius: 10px;
   color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #161613;
-    --panel: #1f1f1b;
-    --ink: #eceae4;
-    --ink-soft: #b0ada4;
-    --ink-faint: #85827a;
-    --line: #33322c;
-    --line-strong: #4a4840;
-    --accent: #c9a375;
-    --accent-ink: #1a1a18;
-    --accent-soft: #2c261d;
-    --ok: #7fba8c;
-    --warn: #d9a441;
-    --warn-soft: #2e2617;
-    --bad: #e08b8b;
-    --bad-soft: #2f1d1d;
-    color-scheme: dark;
-  }
 }
 
 * { box-sizing: border-box; }

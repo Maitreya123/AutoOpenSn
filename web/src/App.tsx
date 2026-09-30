@@ -155,7 +155,6 @@ export default function App() {
           validated input spec, the spec is run, and the results are explained.
         </p>
         <div className="badges">
-          <span className="badge">{health ? `${health.scenarios} scenarios` : "connecting…"}</span>
           <span className={`badge ${health?.llm_available ? "on" : "off"}`}>
             {health?.llm_available ? "model ready" : "no model"}
           </span>
