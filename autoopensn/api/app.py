@@ -37,6 +37,7 @@ from pydantic import BaseModel, Field
 
 from autoopensn import PINNED_OPENSN_COMMIT, __version__
 from autoopensn.api.jobs import JobRegistry
+from autoopensn.llm import LLMError, LLMUnavailable
 from autoopensn.narrate import NarrationError, chat, explain, request_to_spec
 from autoopensn.parse.table import convergence_table
 from autoopensn.runner.remote import PROBE_TIMEOUT
@@ -124,6 +125,20 @@ def _jsonable(frame: pd.DataFrame) -> list[dict[str, Any]]:
             elif hasattr(value, "item"):  # numpy scalars
                 row[key] = value.item()
     return records
+
+
+def _model_failure(exc: Exception) -> HTTPException:
+    """Turn a model failure into a status a caller can act on.
+
+    503, not 500. A missing provider is a configuration problem with a known
+    fix, and the message already says what the fix is — but only if it reaches
+    the caller. Left as an unhandled exception it becomes a bare "Internal
+    Server Error" in the browser and a useful sentence in a log nobody reading
+    the page will ever see. That is the first thing a new installation does,
+    so it is the worst place to lose the explanation.
+    """
+    status = 503 if isinstance(exc, LLMUnavailable) else 502
+    return HTTPException(status_code=status, detail=str(exc))
 
 
 def _load_spec(spec_yaml: str) -> Spec:
@@ -343,6 +358,8 @@ def create_app(
             )
         except NarrationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except LLMError as exc:
+            raise _model_failure(exc) from exc
 
         return {
             "ok": draft.ok,
@@ -465,6 +482,8 @@ def create_app(
             )
         except NarrationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except LLMError as exc:
+            raise _model_failure(exc) from exc
         return {
             "text": result.text,
             "unsupported": list(getattr(result, "unsupported", []) or []),
@@ -492,6 +511,8 @@ def create_app(
             )
         except NarrationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except LLMError as exc:
+            raise _model_failure(exc) from exc
         return {
             "text": answer.text,
             "warnings": list(answer.warnings),

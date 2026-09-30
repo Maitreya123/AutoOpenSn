@@ -408,3 +408,45 @@ def test_a_failed_draft_has_no_spec_in_either_format(tmp_path):
     ).json()
     assert body["spec_yaml"] is None
     assert body["spec_json"] is None
+
+
+# --- a machine with no model configured -------------------------------------
+
+
+def test_no_provider_explains_itself_instead_of_a_500(tmp_path, monkeypatch):
+    """The first thing a fresh install does must not be an opaque error.
+
+    With no sister repository there is no provider, and the exception already
+    says exactly what to set. Left unhandled it became "Internal Server Error"
+    in the browser and a useful sentence in a log nobody reading the page will
+    ever open.
+    """
+    from autoopensn.llm import LLMUnavailable
+
+    app = create_app(run_root=tmp_path)
+    monkeypatch.setattr(
+        "autoopensn.llm.default_llm",
+        lambda *a, **k: (_ for _ in ()).throw(
+            LLMUnavailable("the sister repository is not present, so no provider is configured.")
+        ),
+    )
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/spec", json={"prompt": "compare tolerances"}
+    )
+    assert response.status_code == 503
+    assert "sister repository" in response.json()["detail"]
+
+
+def test_a_provider_that_fails_mid_call_is_a_502(tmp_path, monkeypatch):
+    """Distinct from 503: configured, but the provider did not answer."""
+    from autoopensn.llm import LLMError
+
+    app = create_app(run_root=tmp_path)
+    monkeypatch.setattr(
+        "autoopensn.llm.default_llm",
+        lambda *a, **k: (_ for _ in ()).throw(LLMError("All LLM providers failed.")),
+    )
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/explain", json={"table": [{"Case": "a", "Sweeps": 3}]}
+    )
+    assert response.status_code == 502
