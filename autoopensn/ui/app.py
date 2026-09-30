@@ -48,13 +48,14 @@ from autoopensn import PINNED_OPENSN_COMMIT, __version__, kp_bridge, llm as llm_
 from autoopensn.narrate import NarrationError, explain, load_prompt, request_to_spec
 from autoopensn.parse.table import convergence_table
 from autoopensn.runner import (
-    DockerRunner,
     FakeRunner,
     LocalMPIRunner,
     ReferenceRunner,
+    RemoteRunner,
     RunnerError,
 )
 from autoopensn.runner import reference as reference_runner
+from autoopensn.runner.remote import DEFAULT_HOST as DEFAULT_REMOTE_HOST
 from autoopensn.spec import Spec, SpecError
 from autoopensn.store import RunStore
 from autoopensn.study import render_points, run_study
@@ -72,7 +73,8 @@ st.set_page_config(page_title="AutoOpenSn", page_icon="⚛", layout="wide")
 REFERENCE = "Reference solver"
 FIXTURES = "Recorded fixtures"
 LOCAL = "Local MPI"
-DOCKER = "Docker"
+REMOTE = "Cluster over SSH"
+
 
 
 # --- cached resources -------------------------------------------------------
@@ -122,26 +124,26 @@ def spec_from_text(text: str) -> Spec:
     return spec
 
 
-def build_runner(kind: str, fixture_dir: Path):
+def build_runner(kind: str, fixture_dir: Path, host: str = ""):
     if kind == REFERENCE:
         # Not strict: a study touching an unsupported scenario reports those
         # cases as unavailable instead of stopping.
         return ReferenceRunner(strict=False)
     if kind == FIXTURES:
         return FakeRunner(fixture_dir)
-    if kind == DOCKER:
-        runner = DockerRunner()
-        runner.preflight()
-        return runner
+    if kind == REMOTE:
+        remote = RemoteRunner(host=host) if host else RemoteRunner()
+        remote.preflight()
+        return remote
     runner = LocalMPIRunner()
     runner.preflight()
     return runner
 
 
-def execute(spec: Spec, kind: str, fixture_dir: Path, use_cache: bool) -> bool:
+def execute(spec: Spec, kind: str, fixture_dir: Path, use_cache: bool, host: str = "") -> bool:
     """Run a study and put the results in session state. True on success."""
     try:
-        runner = build_runner(kind, fixture_dir)
+        runner = build_runner(kind, fixture_dir, host)
     except RunnerError as exc:
         st.error(str(exc))
         return False
@@ -313,13 +315,15 @@ with st.sidebar:
     st.subheader("Runner")
     runner_kind = st.radio(
         "How to run each sweep point",
-        [REFERENCE, FIXTURES, LOCAL, DOCKER],
+        [REFERENCE, REMOTE, FIXTURES, LOCAL],
         help=(
             "The reference solver computes 1D scenarios here, in numpy, in under a "
-            "second. It is not OpenSn. The other three run, or replay, OpenSn itself."
+            "second. It is not OpenSn. The other three run, or replay, OpenSn itself. "
+            "The cluster runner is the only one that runs every scenario."
         ),
         label_visibility="collapsed",
     )
+    remote_host = ""
 
     if runner_kind == REFERENCE:
         st.info(
@@ -348,12 +352,22 @@ with st.sidebar:
                 st.error("pyopensn not importable; runs will fail at import")
         except RunnerError as exc:
             st.error(str(exc))
-    elif runner_kind == DOCKER:
-        try:
-            DockerRunner().preflight()
-            st.success("container image ready")
-        except RunnerError as exc:
-            st.error(str(exc))
+    elif runner_kind == REMOTE:
+        remote_host = st.text_input(
+            "SSH host",
+            value=DEFAULT_REMOTE_HOST,
+            help=(
+                "An entry in your ~/.ssh/config, not a bare hostname. Cluster "
+                "compute nodes are usually reachable only through a front end, "
+                "and that jump belongs in the SSH config."
+            ),
+        )
+        if st.button("Check the connection"):
+            try:
+                RemoteRunner(host=remote_host).preflight()
+                st.success(f"{remote_host} reachable, OpenSn environment loads")
+            except RunnerError as exc:
+                st.error(str(exc))
     elif runner_kind == FIXTURES:
         st.info("Replaying recorded output. Nothing is executed.")
 
@@ -490,7 +504,7 @@ with ask_tab:
                 )
 
             if st.button("Run this study", type="primary"):
-                if execute(draft.spec, runner_kind, fixture_dir, use_cache):
+                if execute(draft.spec, runner_kind, fixture_dir, use_cache, remote_host):
                     st.rerun()
 
             if draft.citations:
@@ -559,7 +573,7 @@ with ask_tab:
                 width="stretch",
             )
             if st.button("Run this study", type="primary", key="run_study"):
-                if execute(active, runner_kind, fixture_dir, use_cache):
+                if execute(active, runner_kind, fixture_dir, use_cache, remote_host):
                     st.rerun()
 
         with right:

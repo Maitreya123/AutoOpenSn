@@ -61,7 +61,7 @@ table becomes prose.
 | Scenario spec | `autoopensn/spec/` | Built |
 | Scenario library | `autoopensn/tutorials/` | 40 OpenSn tutorials, generated |
 | Templates | `autoopensn/templates/` | 41, one hand-written |
-| Runners | `autoopensn/runner/` | Reference solver, fixtures, local MPI, Docker |
+| Runners | `autoopensn/runner/` | Reference solver, cluster over SSH, fixtures, local MPI |
 | Parsing | `autoopensn/parse/` | Built |
 | Run cache | `autoopensn/store/` | Built |
 | Results to narrative | `autoopensn/narrate/` | Built |
@@ -80,9 +80,13 @@ none of that.
 | Runner | What it does | Needs |
 | --- | --- | --- |
 | `reference` | Solves 1D scenarios here, in numpy, in under a second | nothing |
+| `remote` | Runs real OpenSn on a cluster node over SSH | an account, and a key |
 | `fake` | Replays recorded output | a fixture |
-| `local` | Runs `mpiexec` on this machine | OpenSn built |
-| `docker` | Runs in a container | an OpenSn image |
+| `local` | Runs `mpiexec` on this machine | OpenSn built here |
+
+`remote` is the one that runs every scenario. It targets a cluster where OpenSn
+is already built and supplied by a module, which is far cheaper than building it
+yourself — someone else already spent the afternoon on PETSc.
 
 **The reference solver is not OpenSn.** It is an independent implementation of
 the same equations, and it reproduces the values OpenSn's own regression suite
@@ -98,9 +102,9 @@ It handles one dimension, one group, isotropic scattering and vacuum
 boundaries, and refuses everything else by name rather than approximating it.
 See [docs/reference_solver.md](docs/reference_solver.md).
 
-For the real thing, [docs/installing_opensn.md](docs/installing_opensn.md) has
-the macOS build steps, transcribed from the OpenSn documentation at the pinned
-commit. Nothing in this repository executes them.
+For the real thing, [docs/running_opensn.md](docs/running_opensn.md) covers both
+routes: a cluster where it is already built, and building it yourself. Nothing
+in this repository builds, installs, or submits anything on your behalf.
 
 ## Installation
 

@@ -18,10 +18,10 @@ import typer
 from autoopensn import PINNED_OPENSN_COMMIT, __version__
 from autoopensn.parse.table import convergence_table, format_table
 from autoopensn.runner import (
-    DockerRunner,
     FakeRunner,
     LocalMPIRunner,
     ReferenceRunner,
+    RemoteRunner,
     Runner,
     RunnerError,
 )
@@ -44,18 +44,26 @@ def _fail(message: str) -> None:
     raise typer.Exit(code=1)
 
 
-def _make_runner(kind: str, fixtures: Optional[Path], num_procs: int) -> Runner:
+def _make_runner(
+    kind: str,
+    fixtures: Optional[Path],
+    num_procs: int,
+    host: Optional[str] = None,
+) -> Runner:
     if kind == "reference":
         # strict=False so a study touching an unsupported scenario reports those
         # cases as unavailable rather than stopping the whole run.
         return ReferenceRunner(strict=False)
-    if kind == "docker":
-        runner = DockerRunner()
+    if kind == "remote":
+        remote = RemoteRunner(host=host) if host else RemoteRunner()
         try:
-            runner.preflight()
+            remote.preflight()
         except RunnerError as exc:
-            _fail(str(exc))
-        return runner
+            _fail(
+                f"{exc}\n\nRun with --runner reference to solve the 1D scenarios "
+                "here instead."
+            )
+        return remote
     if kind == "fake":
         directory = fixtures or DEFAULT_FIXTURES
         try:
@@ -73,13 +81,13 @@ def _make_runner(kind: str, fixtures: Optional[Path], num_procs: int) -> Runner:
         if not runner.pyopensn_available():
             typer.secho(
                 "warning: pyopensn is not importable by this interpreter; the run "
-                "will probably fail at import time. See docs/installing_opensn.md.",
+                "will probably fail at import time. See docs/running_opensn.md.",
                 fg=typer.colors.YELLOW,
                 err=True,
             )
         return runner
     _fail(
-        f"unknown runner {kind!r}; expected 'reference', 'fake', 'local' or 'docker'"
+        f"unknown runner {kind!r}; expected 'reference', 'fake', 'local' or 'remote'"
     )
     raise AssertionError("unreachable")
 
@@ -226,7 +234,8 @@ def render(
 @app.command()
 def run(
     spec_path: Path = typer.Argument(..., help="Spec to run."),
-    runner: str = typer.Option("reference", help="'reference' solves 1D scenarios here and now; 'fake' replays fixtures; 'local' runs MPI; 'docker' runs in a container."),
+    runner: str = typer.Option("reference", help="'reference' solves 1D scenarios here and now; 'remote' runs real OpenSn on a cluster node over SSH; 'fake' replays fixtures; 'local' runs MPI here."),
+    host: Optional[str] = typer.Option(None, help="SSH host for --runner remote. Defaults to the 'class01' ssh alias."),
     fixtures: Optional[Path] = typer.Option(None, help="Fixture directory for the fake runner."),
     run_root: Path = typer.Option(Path("runs"), help="Where run directories are written."),
     cache: bool = typer.Option(True, help="Reuse cached results for identical points."),
@@ -240,7 +249,7 @@ def run(
     except (SpecError, TemplateError) as exc:
         _fail(str(exc))
 
-    active_runner = _make_runner(runner, fixtures, loaded.num_procs)
+    active_runner = _make_runner(runner, fixtures, loaded.num_procs, host)
 
     def say(message: str) -> None:
         typer.secho(message, err=True, fg=typer.colors.BRIGHT_BLACK)
@@ -305,7 +314,8 @@ def explain(
 def study(
     prompt: str = typer.Argument(..., help="The study, described in plain language."),
     template: Optional[str] = typer.Option(None, help="Force a scenario instead of choosing one."),
-    runner: str = typer.Option("reference", help="'reference' solves 1D scenarios here and now; 'fake' replays fixtures; 'local' runs MPI; 'docker' runs in a container."),
+    runner: str = typer.Option("reference", help="'reference' solves 1D scenarios here and now; 'remote' runs real OpenSn on a cluster node over SSH; 'fake' replays fixtures; 'local' runs MPI here."),
+    host: Optional[str] = typer.Option(None, help="SSH host for --runner remote. Defaults to the 'class01' ssh alias."),
     fixtures: Optional[Path] = typer.Option(None, help="Fixture directory for the fake runner."),
     run_root: Path = typer.Option(Path("runs"), help="Where run directories are written."),
     cache_path: Path = typer.Option(Path("runs/cache.db"), help="Run cache database."),
@@ -335,7 +345,7 @@ def study(
     typer.echo(draft.spec.to_yaml())
     say(draft.summary())
 
-    active_runner = _make_runner(runner, fixtures, draft.spec.num_procs)
+    active_runner = _make_runner(runner, fixtures, draft.spec.num_procs, host)
     with RunStore(cache_path) as store:
         try:
             result = run_study(

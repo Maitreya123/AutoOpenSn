@@ -1,23 +1,24 @@
 """Running one sweep point, for real or from a recording.
 
-OpenSn is not installed on every machine this tool runs on, and building it
-takes an afternoon. So running is behind an interface with two implementations:
-
-``LocalMPIRunner``
-    Really invokes ``mpiexec -n N python script.py`` on this machine. Opt-in.
-
-``DockerRunner``
-    The same, inside a container that has OpenSn built. Opt-in, and on a host
-    whose toolchain does not agree with itself about architecture, the more
-    practical of the two.
+OpenSn is hard to install and this package must work without it, so running is
+behind an interface with four implementations:
 
 ``ReferenceRunner``
     Solves the one-dimensional scenarios directly, with this package's own
-    solver, and is explicit that the result is not OpenSn's.
+    solver, in under a second. The default, and explicit that the result is not
+    OpenSn's.
+
+``RemoteRunner``
+    Runs on a cluster node over SSH, where OpenSn is already built and supplied
+    by a module. The way to run the scenarios the reference solver refuses.
+
+``LocalMPIRunner``
+    Invokes ``mpiexec -n N python script.py`` on this machine. Opt-in, and needs
+    a local OpenSn build.
 
 ``FakeRunner``
     Replays stdout, stderr, exit code, and output files recorded under
-    ``tests/fixtures``. The default, and what the entire test suite uses.
+    ``tests/fixtures``. What the test suite uses.
 
 The important consequence is that everything downstream of this interface, which
 is all the parsing, tabulating, caching, and narrating, is developed and tested
@@ -33,17 +34,17 @@ from autoopensn.runner.base import (
     RunnerError,
     run_directory,
 )
-from autoopensn.runner.docker import DockerRunner
 from autoopensn.runner.fake import FakeRunner, FixtureMissing
 from autoopensn.runner.local_mpi import LocalMPIRunner
 from autoopensn.runner.reference import ReferenceRunner, UnsupportedScenario, supported
+from autoopensn.runner.remote import RemoteRunner
 
 __all__ = [
-    "DockerRunner",
     "FakeRunner",
     "FixtureMissing",
     "LocalMPIRunner",
     "ReferenceRunner",
+    "RemoteRunner",
     "RunRequest",
     "RunResult",
     "Runner",

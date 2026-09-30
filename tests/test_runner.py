@@ -206,8 +206,10 @@ def test_missing_launcher_explains_the_alternative(monkeypatch):
     with pytest.raises(RunnerError) as excinfo:
         runner.resolve_launcher()
     message = str(excinfo.value)
-    assert "fixtures" in message
-    assert "docs/installing_opensn.md" in message
+    # Someone hitting this has no OpenSn, so the message has to name a way to
+    # get a result today as well as a way to install one.
+    assert "reference solver" in message
+    assert "docs/running_opensn.md" in message
 
 
 def test_named_launcher_that_is_absent_is_reported(monkeypatch):

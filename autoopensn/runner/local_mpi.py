@@ -67,8 +67,9 @@ class LocalMPIRunner(Runner):
             "no MPI launcher found on PATH (looked for "
             + ", ".join(DEFAULT_LAUNCHERS)
             + "). OpenSn and MPI are not installed on this machine. Either follow "
-            "docs/installing_opensn.md, or run the study against recorded "
-            "fixtures, which is the default."
+            "docs/running_opensn.md, which prefers a cluster where OpenSn is "
+            "already built, or run the study with the reference solver, which is "
+            "the default and needs nothing."
         )
 
     @staticmethod
