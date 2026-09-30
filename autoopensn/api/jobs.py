@@ -64,6 +64,10 @@ class Job:
     cache_hits: list[str] = field(default_factory=list)
     label: str = ""
     """What the study was, for a UI listing jobs without re-reading the spec."""
+    note: str = ""
+    """Which engine produced these numbers, in words. Shown beside the results:
+    a table that does not say whether it came from OpenSn or from this package's
+    own solver is a table nobody should quote."""
 
     @property
     def done(self) -> bool:
@@ -84,6 +88,7 @@ class Job:
             "run_root": self.run_root,
             "cache_hits": list(self.cache_hits),
             "label": self.label,
+            "note": self.note,
         }
         if include_table:
             record["table"] = self.table
@@ -159,6 +164,7 @@ class JobRegistry:
         *,
         total: int = 0,
         label: str = "",
+        note: str = "",
     ) -> Job:
         """Run ``work`` on a thread, passing it a progress callback.
 
@@ -167,7 +173,7 @@ class JobRegistry:
         readable reason behind, because the person waiting on it has no other
         window into what happened.
         """
-        job = Job(id=uuid.uuid4().hex[:12], total=total, label=label)
+        job = Job(id=uuid.uuid4().hex[:12], total=total, label=label, note=note)
         with self._lock:
             self._jobs[job.id] = job
             self._order.append(job.id)

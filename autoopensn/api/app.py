@@ -36,8 +36,9 @@ from pydantic import BaseModel, Field
 
 from autoopensn import PINNED_OPENSN_COMMIT, __version__
 from autoopensn.api.jobs import JobRegistry
-from autoopensn.narrate import NarrationError, explain, request_to_spec
+from autoopensn.narrate import NarrationError, chat, explain, request_to_spec
 from autoopensn.parse.table import convergence_table
+from autoopensn.runner.remote import PROBE_TIMEOUT
 from autoopensn.runner import (
     FakeRunner,
     LocalMPIRunner,
@@ -80,7 +81,7 @@ class SpecYaml(BaseModel):
 
 
 class RunRequestBody(SpecYaml):
-    runner: str = "reference"
+    runner: str = "auto"
     host: Optional[str] = None
     fixtures: Optional[str] = None
     use_cache: bool = True
@@ -91,6 +92,17 @@ class ExplainRequest(BaseModel):
     table: list[dict[str, Any]]
     spec_yaml: Optional[str] = None
     question: Optional[str] = None
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    table: list[dict[str, Any]]
+    messages: list[ChatMessage]
+    spec_yaml: Optional[str] = None
 
 
 # --- helpers ----------------------------------------------------------------
@@ -138,22 +150,58 @@ def _load_spec(spec_yaml: str) -> Spec:
     return spec
 
 
-def _build_runner(kind: str, host: Optional[str], fixtures: Optional[str]) -> Runner:
-    """The same four runners the CLI offers, chosen by name."""
+def _choose_runner(host: Optional[str]) -> tuple[Runner, str]:
+    """Pick the best runner available, and say which and why.
+
+    The interface does not ask. A person describing a physics study should not
+    have to know what a fixture replay is, and the right answer is almost always
+    "the cluster if you can reach it, this machine's own solver if you cannot".
+
+    What the interface must never do is run something and leave the person
+    guessing which engine produced the numbers, so the reason is returned
+    alongside and shown.
+    """
+    try:
+        # A short probe: this decides whether to use the cluster, and the person
+        # is looking at a spinner while it happens. The runner that actually
+        # runs gets the ordinary, patient timeout.
+        probe = RemoteRunner(host=host, connect_timeout=PROBE_TIMEOUT) if host else RemoteRunner(
+            connect_timeout=PROBE_TIMEOUT
+        )
+        probe.preflight()
+        return (
+            RemoteRunner(host=host) if host else RemoteRunner()
+        ), f"Running real OpenSn on {probe.host}."
+    except RunnerError as exc:
+        first_line = str(exc).strip().splitlines()[0]
+        return (
+            ReferenceRunner(strict=False),
+            "The cluster is not reachable, so this ran in AutoOpenSn's own 1D "
+            f"solver instead. These are not OpenSn's numbers. ({first_line})",
+        )
+
+
+def _build_runner(kind: str, host: Optional[str], fixtures: Optional[str]) -> tuple[Runner, str]:
+    """The same runners the CLI offers, chosen by name, or 'auto'."""
+    if kind == "auto":
+        return _choose_runner(host)
     if kind == "reference":
         # Not strict: a study touching an unsupported scenario reports those
         # cases as unavailable rather than stopping the whole run.
-        return ReferenceRunner(strict=False)
+        return ReferenceRunner(strict=False), "AutoOpenSn's own 1D solver. Not OpenSn."
     if kind == "remote":
         remote = RemoteRunner(host=host) if host else RemoteRunner()
         try:
             remote.preflight()
         except RunnerError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-        return remote
+        return remote, f"Running real OpenSn on {remote.host}."
     if kind == "fake":
         try:
-            return FakeRunner(Path(fixtures) if fixtures else DEFAULT_FIXTURES)
+            return (
+                FakeRunner(Path(fixtures) if fixtures else DEFAULT_FIXTURES),
+                "Replaying recorded output. Nothing was executed.",
+            )
         except RunnerError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     if kind == "local":
@@ -162,10 +210,11 @@ def _build_runner(kind: str, host: Optional[str], fixtures: Optional[str]) -> Ru
             local.preflight()
         except RunnerError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-        return local
+        return local, "Running real OpenSn on this machine."
     raise HTTPException(
         status_code=422,
-        detail=f"unknown runner {kind!r}; expected 'reference', 'remote', 'fake' or 'local'",
+        detail=f"unknown runner {kind!r}; expected 'auto', 'reference', 'remote', "
+        "'fake' or 'local'",
     )
 
 
@@ -301,7 +350,13 @@ def create_app(
             "cases": len(draft.spec.expand()) if draft.spec else 0,
             "candidates": [_scenario_summary(s) for s in draft.candidates],
             "citations": [
-                {"source": c.source, "text": c.as_evidence(400)} for c in draft.citations
+                {
+                    "number": c.number,
+                    "location": c.location,
+                    "title": c.title or "",
+                    "text": c.as_evidence(400),
+                }
+                for c in draft.citations
             ],
             "notes": list(draft.notes),
             "errors": list(draft.errors),
@@ -337,7 +392,7 @@ def create_app(
     def start_run(body: RunRequestBody) -> dict[str, Any]:
         """Start a study and return its id. Does not wait."""
         spec = _load_spec(body.spec_yaml)
-        runner = _build_runner(body.runner, body.host, body.fixtures)
+        runner, note = _build_runner(body.runner, body.host, body.fixtures)
         points = len(spec.expand())
         current_store = app.state.store
 
@@ -358,8 +413,16 @@ def create_app(
                 "cache_hits": list(result.cache_hits),
             }
 
-        job = jobs.start(work, total=points, label=f"{spec.name} ({spec.template})")
-        return {"id": job.id, "status": job.status, "total": points}
+        job = jobs.start(
+            work, total=points, label=f"{spec.name} ({spec.template})", note=note
+        )
+        return {
+            "id": job.id,
+            "status": job.status,
+            "total": points,
+            "runner": runner.name,
+            "note": note,
+        }
 
     @app.get("/api/runs")
     def list_runs() -> dict[str, Any]:
@@ -397,6 +460,33 @@ def create_app(
             "unsupported": list(getattr(result, "unsupported", []) or []),
             "model": getattr(result, "model", None),
             "elapsed": getattr(result, "elapsed", 0.0),
+        }
+
+    @app.post("/api/chat")
+    def chat_about(body: ChatRequest) -> dict[str, Any]:
+        """Answer a follow-up about a finished table.
+
+        The table is sent every turn rather than remembered, so a long
+        conversation cannot drift onto numbers the model is recalling instead of
+        reading.
+        """
+        if not body.table:
+            raise HTTPException(status_code=422, detail="there are no results to discuss")
+        spec = _load_spec(body.spec_yaml) if body.spec_yaml else None
+        try:
+            answer = chat(
+                pd.DataFrame(body.table),
+                [m.model_dump() for m in body.messages],
+                spec,
+                llm=llm,
+            )
+        except NarrationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {
+            "text": answer.text,
+            "warnings": list(answer.warnings),
+            "model": answer.model,
+            "elapsed": answer.elapsed,
         }
 
     # --- the knowledge pack ---

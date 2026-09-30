@@ -161,3 +161,76 @@ def explain(
                 "been invented: " + ", ".join(sorted(set(invented))[:8])
             )
     return explanation
+
+
+def chat(
+    table: pd.DataFrame,
+    messages: Sequence[dict[str, str]],
+    spec: Optional[Spec] = None,
+    *,
+    llm: Optional[LLM] = None,
+    check_numbers: bool = True,
+) -> Explanation:
+    """Answer a follow-up question about a finished table.
+
+    The same rule as ``explain``, held across a conversation: the model sees the
+    table and the exchange so far, and nothing else. It does not get the logs
+    back when the reader asks "why?", because the moment a follow-up can reach
+    past the table, the table stops being the record of what was found.
+
+    ``messages`` is the exchange in order, each ``{"role": "user"|"assistant",
+    "content": ...}``. The table is re-sent every turn rather than assumed to be
+    remembered: a long conversation otherwise drifts onto numbers the model is
+    recalling rather than reading, which is exactly the failure this stage is
+    built to prevent.
+    """
+    if table is None or len(table) == 0:
+        raise NarrationError("there are no results to discuss")
+    if not messages:
+        raise NarrationError("there is no question to answer")
+    if messages[-1].get("role") != "user":
+        raise NarrationError("the last message must be the reader's question")
+
+    if llm is None:
+        from autoopensn.llm import default_llm  # noqa: PLC0415
+
+        llm = default_llm()
+
+    transcript = "\n\n".join(
+        f"{'READER' if m.get('role') == 'user' else 'YOU'}: {m.get('content', '').strip()}"
+        for m in messages
+    )
+    parts = [
+        _context(spec),
+        "RESULTS TABLE:\n" + table_for_prompt(table),
+        "CONVERSATION SO FAR:\n" + transcript,
+        "Answer the reader's last message. Stay within the table: if it does "
+        "not contain what they asked about, say so plainly and say what would "
+        "have to be run to find out.",
+    ]
+    user = "\n\n".join(part for part in parts if part)
+
+    chooser = getattr(llm, "model_for", None)
+    model = chooser("thorough") if callable(chooser) else None
+
+    try:
+        completion = llm.complete(
+            load_prompt("explain"), user, temperature=0.3, max_tokens=1200, model=model
+        )
+    except LLMError as exc:
+        raise NarrationError(str(exc)) from exc
+
+    answer = Explanation(
+        text=completion.text.strip(),
+        table=table,
+        model=completion.model,
+        elapsed=completion.elapsed,
+    )
+    if check_numbers:
+        invented = unsupported_numbers(answer.text, table)
+        if invented:
+            answer.warnings.append(
+                "These figures do not appear in the results table and may have "
+                "been invented: " + ", ".join(sorted(set(invented))[:8])
+            )
+    return answer

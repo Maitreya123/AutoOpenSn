@@ -27,7 +27,12 @@ from autoopensn.narrate.base import (
     evidence_block,
     load_prompt,
 )
-from autoopensn.narrate.explanation import Explanation, explain, unsupported_numbers
+from autoopensn.narrate.explanation import (
+    Explanation,
+    chat,
+    explain,
+    unsupported_numbers,
+)
 from autoopensn.narrate.spec_generation import (
     SpecDraft,
     build_spec,
@@ -46,6 +51,7 @@ __all__ = [
     "citations_from_hits",
     "declaration_lines",
     "evidence_block",
+    "chat",
     "explain",
     "load_prompt",
     "parse_spec",

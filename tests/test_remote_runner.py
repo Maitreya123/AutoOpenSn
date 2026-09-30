@@ -175,3 +175,39 @@ def test_preflight_reports_a_missing_module(monkeypatch):
     monkeypatch.setattr("autoopensn.runner.remote.subprocess.run", fake_run)
     with pytest.raises(RunnerError, match="environment did not load"):
         RemoteRunner().preflight()
+
+
+def test_a_hanging_ssh_becomes_a_runner_error_not_a_crash(monkeypatch):
+    """A dropped-packet firewall must not escape as TimeoutExpired.
+
+    Runner promises that a failure to *attempt* a run is a RunnerError. When
+    this leaked, the automatic runner choice crashed the whole request on an
+    unreachable cluster instead of falling back to the solver that works —
+    which is the one case the fallback exists for.
+    """
+    import subprocess
+
+    monkeypatch.setattr("autoopensn.runner.remote.shutil.which", lambda name: f"/usr/bin/{name}")
+
+    def hang(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=["ssh"], timeout=kwargs.get("timeout", 4))
+
+    monkeypatch.setattr("autoopensn.runner.remote.subprocess.run", hang)
+    with pytest.raises(RunnerError, match="did not respond"):
+        RemoteRunner(connect_timeout=1).preflight()
+
+
+def test_output_retrieval_failing_does_not_fail_the_run(tmp_path, monkeypatch):
+    """stdout is already in hand; a VTK file that will not copy is not fatal."""
+    import subprocess
+
+    monkeypatch.setattr("autoopensn.runner.remote.shutil.which", lambda name: f"/usr/bin/{name}")
+
+    def hang(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=["scp"], timeout=1)
+
+    monkeypatch.setattr("autoopensn.runner.remote.subprocess.run", hang)
+    runner = RemoteRunner(connect_timeout=1)
+    request = request_for(tmp_path)
+    request.write_inputs()
+    runner._fetch(request)  # must not raise

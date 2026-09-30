@@ -52,6 +52,40 @@ CONNECT_TIMEOUT = 20
 """Seconds to wait for the SSH handshake. Distinct from the run timeout: a
 cluster that is down should say so in seconds, not hold a study for an hour."""
 
+PROBE_TIMEOUT = 4
+"""Shorter still, for deciding *whether* to use the cluster at all. A firewall
+drops rather than refuses, so an unreachable host costs the full timeout, and
+that wait happens before the user sees anything at all. Four seconds is long
+enough for a handshake over a VPN and short enough not to read as a hang."""
+
+
+def _guarded(command: Sequence[str], timeout: float) -> subprocess.CompletedProcess:
+    """Run a helper process, turning every way it can fail into RunnerError.
+
+    ``Runner`` promises that a failure to *attempt* a run is a ``RunnerError``.
+    A raw ``TimeoutExpired`` escaping from here breaks that promise, and the
+    place it breaks it is the automatic runner choice: a cluster that is merely
+    unreachable would crash the request instead of falling back to the solver
+    that works.
+
+    Timeouts matter more here than for most subprocesses because a firewall
+    drops rather than refuses. SSH's own ``ConnectTimeout`` does not always cap
+    that — with a jump host there are two handshakes, and a dropped packet can
+    hold the process well past it — so the outer timeout is the one that has to
+    be authoritative.
+    """
+    try:
+        return subprocess.run(
+            list(command), capture_output=True, text=True, timeout=timeout, check=False
+        )
+    except subprocess.TimeoutExpired as expired:
+        raise RunnerError(
+            f"{command[0]} did not respond within {timeout:.0f}s: "
+            + " ".join(str(part) for part in command[:4])
+        ) from expired
+    except FileNotFoundError as exc:
+        raise RunnerError(f"could not start {command[0]!r}: {exc}") from exc
+
 
 class RemoteRunner(Runner):
     """Runs scripts on a cluster node over SSH, and waits for them."""
@@ -71,6 +105,7 @@ class RemoteRunner(Runner):
         scp: str = "scp",
         ssh_options: Sequence[str] = (),
         fetch_outputs: bool = True,
+        connect_timeout: int = CONNECT_TIMEOUT,
     ):
         self.host = host
         self.modules = tuple(modules)
@@ -82,6 +117,7 @@ class RemoteRunner(Runner):
         self.scp = scp
         self.ssh_options = tuple(ssh_options)
         self.fetch_outputs = fetch_outputs
+        self.connect_timeout = connect_timeout
 
     # --- pure: what would run -------------------------------------------
 
@@ -145,7 +181,7 @@ class RemoteRunner(Runner):
             "-o",
             "BatchMode=yes",
             "-o",
-            f"ConnectTimeout={CONNECT_TIMEOUT}",
+            f"ConnectTimeout={self.connect_timeout}",
             *self.ssh_options,
             self.host,
             *arguments,
@@ -176,13 +212,7 @@ class RemoteRunner(Runner):
         if not shutil.which(self.scp):
             raise RunnerError(f"{self.scp!r} is not on PATH; it is needed to send scripts.")
 
-        probe = subprocess.run(
-            self.ssh_command("true"),
-            capture_output=True,
-            text=True,
-            timeout=CONNECT_TIMEOUT + 10,
-            check=False,
-        )
+        probe = _guarded(self.ssh_command("true"), self.connect_timeout + 4)
         if probe.returncode != 0:
             raise RunnerError(
                 f"cannot reach {self.host!r} over SSH: "
@@ -201,12 +231,8 @@ class RemoteRunner(Runner):
             )
             if line
         )
-        loaded = subprocess.run(
-            self.ssh_command("bash", "-l", "-c", check),
-            capture_output=True,
-            text=True,
-            timeout=CONNECT_TIMEOUT + 60,
-            check=False,
+        loaded = _guarded(
+            self.ssh_command("bash", "-l", "-c", check), self.connect_timeout + 60
         )
         if loaded.returncode != 0:
             raise RunnerError(
@@ -219,33 +245,27 @@ class RemoteRunner(Runner):
     def _send(self, request: RunRequest) -> None:
         """Create the remote directory and copy the script into it."""
         directory = self.remote_dir(request)
-        made = subprocess.run(
+        made = _guarded(
             self.ssh_command("mkdir", "-p", shlex.quote(directory)),
-            capture_output=True,
-            text=True,
-            timeout=CONNECT_TIMEOUT + 30,
-            check=False,
+            self.connect_timeout + 30,
         )
         if made.returncode != 0:
             raise RunnerError(
                 f"could not create {directory} on {self.host}: {made.stderr.strip()[:200]}"
             )
 
-        copied = subprocess.run(
+        copied = _guarded(
             (
                 self.scp,
                 "-o",
                 "BatchMode=yes",
                 "-o",
-                f"ConnectTimeout={CONNECT_TIMEOUT}",
+                f"ConnectTimeout={self.connect_timeout}",
                 *self.ssh_options,
                 str(request.script_path),
                 f"{self.host}:{directory}/{request.script_path.name}",
             ),
-            capture_output=True,
-            text=True,
-            timeout=CONNECT_TIMEOUT + 120,
-            check=False,
+            self.connect_timeout + 120,
         )
         if copied.returncode != 0:
             raise RunnerError(
@@ -261,23 +281,27 @@ class RemoteRunner(Runner):
         failed row.
         """
         directory = self.remote_dir(request)
-        subprocess.run(
-            (
-                self.scp,
-                "-r",
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                f"ConnectTimeout={CONNECT_TIMEOUT}",
-                *self.ssh_options,
-                f"{self.host}:{directory}/.",
-                str(Path(request.directory)),
-            ),
-            capture_output=True,
-            text=True,
-            timeout=CONNECT_TIMEOUT + 300,
-            check=False,
-        )
+        try:
+            _guarded(
+                (
+                    self.scp,
+                    "-r",
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    f"ConnectTimeout={self.connect_timeout}",
+                    *self.ssh_options,
+                    f"{self.host}:{directory}/.",
+                    str(Path(request.directory)),
+                ),
+                self.connect_timeout + 300,
+            )
+        except RunnerError:
+            # Best effort, and deliberately so: the observables this package
+            # parses come from stdout, which is already in hand. A VTK file that
+            # would not copy back must not turn a successful simulation into a
+            # failed row.
+            pass
 
     def run(self, request: RunRequest) -> RunResult:
         command = self.command_for(request)

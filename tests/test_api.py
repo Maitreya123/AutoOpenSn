@@ -298,3 +298,81 @@ def test_a_spec_the_model_could_not_produce_is_still_a_200(tmp_path):
     assert body["ok"] is False
     assert body["errors"]
     assert body["attempts"]
+
+
+# --- choosing an engine for the user ----------------------------------------
+
+
+def test_auto_falls_back_and_says_so(client):
+    """The interface does not ask which engine; it must still say which ran.
+
+    With no cluster reachable, `auto` has to land on the reference solver and
+    state plainly that these are not OpenSn's numbers. A table that does not say
+    where it came from is one nobody should quote.
+    """
+    started = client.post(
+        "/api/runs",
+        json={"spec_yaml": GOOD_SPEC, "runner": "auto", "use_cache": False},
+    )
+    assert started.status_code == 202
+    body = started.json()
+    assert body["runner"] == "reference"
+    assert "not OpenSn" in body["note"]
+
+    finished = wait_for(client, body["id"])
+    assert finished["status"] == "succeeded"
+    assert finished["note"] == body["note"]
+
+
+def test_auto_is_the_default_runner(client):
+    """The flow sends a prompt and a spec; it should not have to send a runner."""
+    started = client.post("/api/runs", json={"spec_yaml": GOOD_SPEC, "use_cache": False})
+    assert started.status_code == 202
+    assert started.json()["note"]
+
+
+# --- chatting about results -------------------------------------------------
+
+
+def test_chat_answers_a_follow_up(tmp_path):
+    app = create_app(
+        llm=ScriptedLLM(["Restart 5 needed more sweeps because the interval truncates."]),
+        run_root=tmp_path,
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/api/chat",
+        json={
+            "table": [
+                {"Case": "restart=5", "Sweeps": 11},
+                {"Case": "restart=20", "Sweeps": 8},
+            ],
+            "messages": [{"role": "user", "content": "why did restart 5 take longer?"}],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["text"]
+
+
+def test_chat_refuses_when_the_last_word_is_its_own(tmp_path):
+    """A turn must answer the reader, not continue talking to itself."""
+    app = create_app(llm=ScriptedLLM(["unused"]), run_root=tmp_path)
+    client = TestClient(app)
+    response = client.post(
+        "/api/chat",
+        json={
+            "table": [{"Case": "a", "Sweeps": 1}],
+            "messages": [{"role": "assistant", "content": "Here is what I think."}],
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_chat_refuses_an_empty_table(tmp_path):
+    app = create_app(llm=ScriptedLLM(["unused"]), run_root=tmp_path)
+    client = TestClient(app)
+    response = client.post(
+        "/api/chat",
+        json={"table": [], "messages": [{"role": "user", "content": "well?"}]},
+    )
+    assert response.status_code == 422
