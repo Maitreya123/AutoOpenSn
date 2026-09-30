@@ -3,6 +3,8 @@ import { api, pollJob, type Job, type Narrative, type SpecDraft, type TableRow }
 import Step from "./components/Step";
 import ResultsTable from "./components/ResultsTable";
 import Chat, { type Turn } from "./components/Chat";
+import Examples from "./components/Examples";
+import Masthead from "./components/Masthead";
 
 // Four steps, in order, and nothing to configure.
 //
@@ -13,8 +15,6 @@ import Chat, { type Turn } from "./components/Chat";
 // *which* engine produced the numbers, because a results table that does not
 // say whether it came from OpenSn or from this package's own solver is a table
 // nobody should quote.
-
-const EXAMPLE = "compare GMRES tolerances 1e-4, 1e-6 and 1e-8 on the 1D transport problem";
 
 export default function App() {
   const [prompt, setPrompt] = useState("");
@@ -32,9 +32,10 @@ export default function App() {
   const [thinking, setThinking] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
 
-  // Usually a second or two. The counter is here for the times it is not —
-  // a slow provider, or a knowledge pack being opened for the first time —
-  // because a spinner with no clock reads as a hang.
+  // A question the provider has not seen takes twenty seconds to a minute;
+  // repeating one takes about a second, because the gateway serves it from
+  // cache. The slow case is the normal one for a person actually using this,
+  // so the clock is shown and the wait is named rather than hidden.
   useEffect(() => {
     if (!generating) return;
     setElapsed(0);
@@ -161,17 +162,14 @@ export default function App() {
 
   return (
     <div className="shell">
-      <header className="masthead">
-        <h1>AutoOpenSn</h1>
-        <p>Describe a transport study in plain language. It becomes a validated spec, is run, and explained.</p>
-      </header>
+      <Masthead />
 
       {/* 1 --------------------------------------------------------------- */}
       <Step number={1} title="What do you want to find out?" state={draft?.ok ? "done" : "active"}>
         <textarea
           rows={3}
           value={prompt}
-          placeholder={EXAMPLE}
+          placeholder="e.g. compare GMRES tolerances 1e-4, 1e-6 and 1e-8 on the 1D transport problem"
           onChange={(event) => setPrompt(event.target.value)}
           disabled={generating}
         />
@@ -180,18 +178,22 @@ export default function App() {
             {generating ? (
               <>
                 <span className="spinner" />
-                Writing the spec…{elapsed > 3 ? ` ${elapsed}s` : ""}
+                Writing the spec… {elapsed}s
               </>
             ) : (
               "Generate spec"
             )}
           </button>
-          {!prompt && (
-            <button className="quiet" onClick={() => setPrompt(EXAMPLE)} disabled={generating}>
-              Use an example
-            </button>
-          )}
         </div>
+        {generating && elapsed >= 4 && (
+          <p className="hint" style={{ marginTop: 10 }}>
+            A question the model has not seen before usually takes twenty
+            seconds to a minute. Repeating one is near-instant.
+          </p>
+        )}
+        {!draft?.ok && !generating && (
+          <Examples onPick={setPrompt} disabled={generating} />
+        )}
         {specError && <div className="notice bad">{specError}</div>}
         {draft && !draft.ok && (
           <div className="notice bad">
