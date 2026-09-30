@@ -19,8 +19,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "httpx>=0.27"]
 ui = ["streamlit>=1.40", "altair>=5.0"]
+api = ["fastapi>=0.110", "uvicorn[standard]>=0.27"]
 
 [project.scripts]
 autoopensn = "autoopensn.cli:main"

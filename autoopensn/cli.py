@@ -93,6 +93,42 @@ def _make_runner(
 
 
 @app.command()
+def serve(
+    port: int = typer.Option(8000, help="Port to serve on."),
+    host: str = typer.Option("127.0.0.1", help="Address to bind. Loopback by default."),
+    reload: bool = typer.Option(False, help="Restart on code changes, for development."),
+) -> None:
+    """Serve the HTTP API.
+
+    The same pipeline these commands drive, reachable over HTTP, with studies
+    started in the background and polled rather than held open on a request.
+    That is what a browser front end needs once runs take minutes on a cluster
+    rather than a second in the reference solver.
+
+    Bound to loopback by default, and deliberately: this API can start jobs on
+    your cluster account, and it has no authentication of its own.
+    """
+    try:
+        import uvicorn  # noqa: PLC0415
+    except ImportError:
+        _fail(
+            "the API needs FastAPI and uvicorn, which are not installed.\n"
+            'Install them with: pip install -e ".[api]"'
+        )
+
+    typer.secho(f"AutoOpenSn API on http://{host}:{port}", fg=typer.colors.GREEN)
+    typer.echo(f"Interactive docs at http://{host}:{port}/docs")
+    uvicorn.run(
+        "autoopensn.api.app:create_app",
+        factory=True,
+        host=host,
+        port=port,
+        reload=reload,
+        log_level="info",
+    )
+
+
+@app.command()
 def ui(
     port: int = typer.Option(8501, help="Port to serve on."),
     headless: bool = typer.Option(True, help="Do not open a browser automatically."),
