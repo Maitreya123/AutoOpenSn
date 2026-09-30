@@ -133,13 +133,20 @@ export default function App() {
     }
   }
 
-  function downloadSpec() {
-    if (!draft?.spec_yaml) return;
-    const blob = new Blob([draft.spec_yaml], { type: "text/yaml" });
+  // Both formats are the same spec. YAML is what the engine reads and what
+  // `autoopensn run` takes; JSON is for anything that would rather parse it
+  // than run it. Neither is converted here — the API serialises the one
+  // validated object twice, so the two cannot drift apart.
+  function downloadSpec(format: "yaml" | "json") {
+    const text = format === "yaml" ? draft?.spec_yaml : draft?.spec_json;
+    if (!text) return;
+    const blob = new Blob([text], {
+      type: format === "yaml" ? "text/yaml" : "application/json",
+    });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${nameOf(draft.spec_yaml)}.yaml`;
+    anchor.download = `${nameOf(draft?.spec_yaml ?? "")}.${format}`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -208,8 +215,11 @@ export default function App() {
               <button onClick={run} disabled={running}>
                 {running ? <><span className="spinner" />Running…</> : "Run this"}
               </button>
-              <button className="quiet" onClick={downloadSpec}>
-                Download spec
+              <button className="quiet" onClick={() => downloadSpec("yaml")}>
+                Download .yaml
+              </button>
+              <button className="quiet" onClick={() => downloadSpec("json")}>
+                Download .json
               </button>
             </div>
           </>

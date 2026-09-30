@@ -23,6 +23,7 @@ export type SpecDraft = {
   ok: boolean;
   summary: string;
   spec_yaml: string | null;
+  spec_json: string | null;
   cases: number;
   candidates: Scenario[];
   citations: Citation[];

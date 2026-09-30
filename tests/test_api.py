@@ -16,6 +16,7 @@ from __future__ import annotations
 import time
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from autoopensn.api import JobRegistry, create_app
@@ -376,3 +377,34 @@ def test_chat_refuses_an_empty_table(tmp_path):
         json={"table": [], "messages": [{"role": "user", "content": "well?"}]},
     )
     assert response.status_code == 422
+
+
+def test_the_spec_comes_back_in_both_formats(client):
+    """Downloadable as YAML for the engine, as JSON for anything else.
+
+    Serialised from one validated object rather than converted in the browser,
+    so the two cannot come to disagree about what the spec says.
+    """
+    import json as json_module
+
+    body = client.post(
+        "/api/spec", json={"prompt": "compare tolerances", "ground": False, "review": False}
+    ).json()
+    assert body["ok"]
+    assert body["spec_yaml"]
+    assert body["spec_json"]
+
+    from_json = json_module.loads(body["spec_json"])
+    from_yaml = yaml.safe_load(body["spec_yaml"])
+    assert from_json["template"] == from_yaml["template"]
+    assert from_json["name"] == from_yaml["name"]
+    assert from_json["sweep"] == from_yaml["sweep"]
+
+
+def test_a_failed_draft_has_no_spec_in_either_format(tmp_path):
+    app = create_app(llm=ScriptedLLM([OUT_OF_RANGE, OUT_OF_RANGE]), run_root=tmp_path)
+    body = TestClient(app).post(
+        "/api/spec", json={"prompt": "impossible", "ground": False, "review": False}
+    ).json()
+    assert body["spec_yaml"] is None
+    assert body["spec_json"] is None

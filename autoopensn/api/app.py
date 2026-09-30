@@ -24,6 +24,7 @@ and no network, which is what the whole suite does.
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 from typing import Any, Optional
@@ -347,6 +348,15 @@ def create_app(
             "ok": draft.ok,
             "summary": draft.summary(),
             "spec_yaml": draft.spec.to_yaml() if draft.spec else None,
+            # The same object serialised twice, rather than converted in the
+            # browser. A YAML parser in the front end would be a second
+            # implementation of what a spec means, and the two would eventually
+            # disagree about something like an unsigned exponent.
+            "spec_json": (
+                json.dumps(draft.spec.model_dump(mode="json"), indent=2)
+                if draft.spec
+                else None
+            ),
             "cases": len(draft.spec.expand()) if draft.spec else 0,
             "candidates": [_scenario_summary(s) for s in draft.candidates],
             "citations": [
