@@ -29,13 +29,56 @@ Every generated script records the OpenSn commit it was generated against.
 ## Installation
 
 ```shell
+git clone https://github.com/Maitreya123/AutoOpenSn.git
+cd AutoOpenSn
+
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev,api]"
-cp .env.example .env    # only needed for the narration stages
 
-cd web && npm install   # the interface
+cd web && npm install && cd ..
 ```
+
+At this point the deterministic half works: 41 scenarios, spec validation,
+script rendering, and running 1D studies in the built-in solver. Two more steps
+are needed before the interface's first and last steps — writing a spec from a
+prompt, and explaining the results — will do anything.
+
+**1. The sister repository**, for its LLM client:
+
+```shell
+git clone https://github.com/Maitreya123/Code_Assistant_OpenSn.git ../Code_assistant_TAU
+```
+
+`../Code_assistant_TAU` is where AutoOpenSn looks by default; put it anywhere and
+set `AUTOOPENSN_KP_REPO` to that path instead. A plain clone is enough — the
+knowledge pack and the OpenSn checkout are excluded from that repository and are
+**not required**. Without the pack, spec generation is not grounded in retrieved
+documentation, which makes it somewhat worse and not broken; validation against
+each template's declared ranges is unaffected, and that is the check that
+matters.
+
+**2. An API key**, in a `.env` in *this* repository:
+
+```shell
+cp .env.example .env     # then add your key
+```
+
+It has to be here, not in the sister repository. The client resolves `.env`
+relative to the running process, so a key that works there is not found from
+here, and the failure is silent: the provider chain falls through to a local
+Ollama and answers with whatever model that is serving.
+
+## Checking the install
+
+```shell
+pytest                                     # 559 tests, no OpenSn or network needed
+autoopensn run tests/data/gmres_convergence.yaml   # a real study, no key needed
+```
+
+If the second prints a seven-row table, the deterministic half is working. If
+`autoopensn spec "compare GMRES tolerances 1e-4 and 1e-6"` also returns a spec,
+the model is wired up too.
 
 ## Usage
 
@@ -111,7 +154,9 @@ run. See [docs/scenarios.md](docs/scenarios.md).
 ## The sister repository
 
 `Code_assistant_TAU` is an OpenSn documentation assistant. AutoOpenSn uses it as
-a library and as a data source, and never modifies it:
+a library and as a data source, and never modifies it. It is **required for the
+two language-model stages and for nothing else** — the pipeline from spec to
+results table has no dependency on it:
 
 - its knowledge pack grounds spec generation in the real API for a pinned commit,
 - its `SMEReviewer` checks generated specs for domain errors before anything runs,
