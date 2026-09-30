@@ -26,86 +26,6 @@ character for character at default parameters, so a generated script differs fro
 validated upstream code by exactly the values the spec changed and nothing else.
 Every generated script records the OpenSn commit it was generated against.
 
-## Milestones
-
-**Milestone 1 (the acceptance test).** Reproduce the GMRES convergence-control
-study end to end. Given the prompt
-
-> compare GMRES tolerances 1e-4, 1e-6, 1e-8 and restart intervals 5, 20, 50
-> against a 1e-10 reference on the 1D transport problem
-
-the tool produces a spec, renders 7 scripts, runs them (or replays fixtures),
-and produces a table with columns Case, Relative flux difference, Sweeps, and
-Wall time.
-
-The tutorial this was meant to reproduce does not exist at the pinned commit;
-the problem setup comes from the regression suite and the parameter ranges from
-the user guide. See [docs/milestone1_sources.md](docs/milestone1_sources.md).
-
-**Milestone 2.** Answer "run reed_balance with each inner solver (Richardson,
-GMRES, CBC) and tell me which converges fastest."
-
-Open-ended geometry generation is still out of scope. The web interface, which
-the original brief deferred, is now the primary way in, and 2D and 3D problems
-arrived with the tutorial scenarios rather than being written by hand.
-
-## Status
-
-All five stages are built. The whole chain runs: a request becomes a spec,
-the spec becomes scripts, the scripts run, the runs become a table, and the
-table becomes prose.
-
-| Stage | Module | State |
-| --- | --- | --- |
-| Request to spec | `autoopensn/narrate/` | Built, grounded and reviewed |
-| Scenario spec | `autoopensn/spec/` | Built |
-| Scenario library | `autoopensn/tutorials/` | 40 OpenSn tutorials, generated |
-| Templates | `autoopensn/templates/` | 41, one hand-written |
-| Runners | `autoopensn/runner/` | Reference solver, cluster over SSH, fixtures, local MPI |
-| Parsing | `autoopensn/parse/` | Built |
-| Run cache | `autoopensn/store/` | Built |
-| Results to narrative | `autoopensn/narrate/` | Built |
-| Interface | `web/`, `autoopensn/api/`, `autoopensn/cli.py` | React page, HTTP API, and CLI |
-
-The 1D scenarios compute for real, in under a second, using this package's own
-solver. Scenarios beyond one dimension need OpenSn itself, which is not
-installed here.
-
-## Running without OpenSn
-
-Installing OpenSn means compiling PETSc, VTK and HDF5 first: one to three hours
-and 12 to 18 GB. So there are four ways to run a study, and the default needs
-none of that.
-
-| Runner | What it does | Needs |
-| --- | --- | --- |
-| `reference` | Solves 1D scenarios here, in numpy, in under a second | nothing |
-| `remote` | Runs real OpenSn on a cluster node over SSH | an account, and a key |
-| `fake` | Replays recorded output | a fixture |
-| `local` | Runs `mpiexec` on this machine | OpenSn built here |
-
-`remote` is the one that runs every scenario. It targets a cluster where OpenSn
-is already built and supplied by a module, which is far cheaper than building it
-yourself — someone else already spent the afternoon on PETSc.
-
-**The reference solver is not OpenSn.** It is an independent implementation of
-the same equations, and it reproduces the values OpenSn's own regression suite
-records for the scenarios it supports:
-
-| Scenario | Quantity | Reference solver | OpenSn gold |
-| --- | --- | --- | --- |
-| `reed_1d` | `Absorption=` | 1.006178e+02 | 100.6178 |
-| `reed_1d` | `OutFlow=` | 3.821562e-01 | 0.3821562 |
-| `first_1d_fixed_source` | `FOUNDATION_1D_MAX_FLUX=` | 9.62393909e-01 | 0.962393909 |
-
-It handles one dimension, one group, isotropic scattering and vacuum
-boundaries, and refuses everything else by name rather than approximating it.
-See [docs/reference_solver.md](docs/reference_solver.md).
-
-For the real thing, [docs/running_opensn.md](docs/running_opensn.md) covers both
-routes: a cluster where it is already built, and building it yourself. Nothing
-in this repository builds, installs, or submits anything on your behalf.
-
 ## Installation
 
 ```shell
@@ -146,6 +66,12 @@ above the table. A results table that does not say where it came from is a table
 nobody should quote. It also flags any figure in its own prose that is not in
 the table, and says when a value was replayed from a fixture rather than
 measured, or derived rather than logged.
+
+The built-in solver handles one-dimensional problems and **is not OpenSn** — it
+is an independent implementation that reproduces OpenSn's own regression values
+for the scenarios it supports ([docs/reference_solver.md](docs/reference_solver.md)).
+Everything else needs real OpenSn, which is cheapest on a cluster where it is
+already built ([docs/running_opensn.md](docs/running_opensn.md)).
 
 ### The command line
 

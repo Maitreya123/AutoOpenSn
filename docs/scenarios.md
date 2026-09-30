@@ -95,6 +95,10 @@ generator shows up in review as a diff to the physics scripts it produces.
 **Most cannot be run here**, because OpenSn is not installed. A generated study
 renders its scripts and stops, with a row per case saying no recording exists.
 Only the Reed GMRES study has recorded fixtures, and those are hand-written.
+That study's problem setup and parameter ranges did not come from a tutorial —
+the one it was meant to reproduce does not exist at the pinned commit — so their
+provenance is written down separately in
+[milestone1_sources.md](milestone1_sources.md).
 
 **Fourteen need data files**, meshes and cross-section libraries that live beside
 their notebook. The catalog records which, and the runner does not yet stage
