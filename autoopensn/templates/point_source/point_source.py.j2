@@ -1,0 +1,64 @@
+from mpi4py import MPI
+from pyopensn.aquad import GLCProductQuadrature2DXY
+from pyopensn.context import Finalize
+from pyopensn.mesh import OrthogonalMeshGenerator
+from pyopensn.solver import DiscreteOrdinatesProblem, SteadyStateSourceSolver
+from pyopensn.source import PointSource
+from pyopensn.xs import MultiGroupXS
+
+rank = MPI.COMM_WORLD.rank
+nodes = [-1.0 + i / 10.0 for i in range(21)]
+mesh = OrthogonalMeshGenerator(node_sets=[nodes, nodes]).Execute()
+mesh.SetOrthogonalBoundaries()
+mesh.SetUniformBlockID(0)
+
+xs = MultiGroupXS()
+xs.CreateSimpleOneGroup(sigma_t={{ sigma_t | lit("plain") }}, c={{ c | lit("sci") }})
+quadrature = GLCProductQuadrature2DXY(
+    n_polar={{ n_polar | lit("int") }}, n_azimuthal={{ n_azimuthal | lit("int") }}, scattering_order={{ scattering_order | lit("int") }}
+)
+
+source = PointSource(
+    location={{ location | lit("list:plain") }}, strength={{ strength | lit("list:plain") }}
+)
+
+problem = DiscreteOrdinatesProblem(
+    mesh=mesh,
+    num_groups={{ num_groups | lit("int") }},
+    groupsets=[
+        {
+            "groups_from_to": (0, 0),
+            "angular_quadrature": quadrature,
+            "inner_linear_method": {{ inner_linear_method | lit("dq") }},
+            "l_abs_tol": {{ l_abs_tol | lit("sci") }},
+            "l_max_its": {{ l_max_its | lit("int") }},
+        }
+    ],
+    xs_map=[{"block_ids": {{ xs_map_block_ids | lit("list:int") }}, "xs": xs}],
+    point_sources=[source],
+    boundary_conditions=[
+        {"name": {{ xmin_name | lit("dq") }}, "type": {{ xmin_type | lit("dq") }}},
+        {"name": {{ xmax_name | lit("dq") }}, "type": {{ xmax_type | lit("dq") }}},
+        {"name": {{ ymin_name | lit("dq") }}, "type": {{ ymin_type | lit("dq") }}},
+        {"name": {{ ymax_name | lit("dq") }}, "type": {{ ymax_type | lit("dq") }}},
+    ],
+)
+solver = SteadyStateSourceSolver(problem=problem, compute_balance={{ compute_balance | lit("bool") }})
+solver.Initialize()
+solver.Execute()
+
+balance = solver.ComputeBalanceTable()
+production = balance["production_rate"]
+absorption = balance["absorption_rate"]
+balance_error = abs(production - absorption)
+if rank == 0:
+    print(f"Point-source production rate={production:.8e}")
+    print(f"Point-source absorption rate={absorption:.8e}")
+    print(f"Point-source balance error={balance_error:.8e}")
+assert abs(production - 1.0) < 1.0e-8
+assert balance_error < 1.0e-8
+if "opensn_console" not in globals():
+    from IPython import get_ipython
+    if get_ipython() is not None:
+        Finalize()
+        MPI.Finalize()

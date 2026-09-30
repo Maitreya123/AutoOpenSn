@@ -1,0 +1,174 @@
+import os
+import numpy as np
+from mpi4py import MPI
+
+
+from pyopensn.mesh import FromFileMeshGenerator, OrthogonalMeshGenerator, SurfaceMesh
+from pyopensn.logvol import RCCLogicalVolume, RPPLogicalVolume, SphereLogicalVolume, BooleanLogicalVolume, SurfaceMeshLogicalVolume
+from pyopensn.context import UseColor, Finalize
+from pyopensn.math import Vector3
+
+UseColor(False)
+
+meshgen = FromFileMeshGenerator(filename={{ from_file_mesh_generator_filename | lit("dq") }})
+grid = meshgen.Execute()
+
+# Export
+grid.ExportToPVTU("original_mesh")
+
+# reset to uniform material layout (useful when running the notebook)
+grid.SetUniformBlockID(1)
+
+# first RCC
+lv1 = RCCLogicalVolume(r={{ r | lit("plain") }}, x0={{ x0 | lit("dot") }}, y0={{ y0 | lit("plain") }}, z0={{ z0 | lit("dot") }}, vx={{ vx | lit("dot") }}, vy={{ vy | lit("plain") }}, vz={{ vz | lit("dot") }})
+grid.SetBlockIDFromLogicalVolume(lv1, 2, True)
+
+# second RCC
+lv2 = RCCLogicalVolume(
+    r={{ rcclogical_volume_r | lit("plain") }},
+    x0={{ rcclogical_volume_x0 | lit("plain") }},
+    y0={{ rcclogical_volume_y0 | lit("plain") }},
+    z0={{ rcclogical_volume_z0 | lit("plain") }},
+    vx={{ rcclogical_volume_vx | lit("plain") }},
+    vy={{ rcclogical_volume_vy | lit("plain") }},
+    vz={{ rcclogical_volume_vz | lit("plain") }},
+)
+grid.SetBlockIDFromLogicalVolume(lv2, 3, True)
+
+volumes_per_block = grid.ComputeVolumePerBlockID()
+for block_id, volume in volumes_per_block.items():
+    print(f"1-Block {block_id}: volume = {volume:.4f}")
+
+
+# Export
+grid.ExportToPVTU("RCC_mesh")
+
+# reset to uniform material layout (useful when running the notebook)
+grid.SetUniformBlockID(1)
+
+# RPP
+lv3 = RPPLogicalVolume(xmin={{ xmin | lit("plain") }}, xmax={{ xmax | lit("plain") }}, infy=True, infz=True)
+grid.SetBlockIDFromLogicalVolume(lv3, 2, True)
+
+volumes_per_block = grid.ComputeVolumePerBlockID()
+for block_id, volume in volumes_per_block.items():
+    print(f"2-Block {block_id}: volume = {volume:.4f}")
+
+# Export
+grid.ExportToPVTU("RPP_mesh")
+
+# reset to uniform material layout (useful when running the notebook)
+grid.SetUniformBlockID(1)
+
+# Sphere
+lv4 = SphereLogicalVolume(r={{ sphere_logical_volume_r | lit("plain") }}, x={{ x | lit("dot") }}, y={{ y | lit("dot") }}, z={{ z | lit("dot") }})
+grid.SetBlockIDFromLogicalVolume(lv4, 2, True)
+
+volumes_per_block = grid.ComputeVolumePerBlockID()
+for block_id, volume in volumes_per_block.items():
+    print(f"3-Block {block_id}: volume = {volume:.4f}")
+
+# Export
+grid.ExportToPVTU("Sphere_mesh")
+
+# reset to uniform material layout (useful when running the notebook)
+grid.SetUniformBlockID(1)
+
+# Python function describing a sphere (material 2)
+def MatIDFunction1(pt, cur_id):
+    y0 = {{ y0_2 | lit("plain") }}
+    if np.sqrt(pt.x * pt.x + (pt.y - y0)**2  + pt.z * pt.z) < 0.5:
+        return 2
+    return cur_id
+
+# Assign block ID 2 to lv using Python function
+grid.SetBlockIDFromFunction(MatIDFunction1)
+
+# Export
+grid.ExportToPVTU("Sphere2_mesh")
+
+# reset to uniform material layout (useful when running the notebook)
+grid.SetUniformBlockID(1)
+
+# Create logical volume lv1 as an analytical sphere
+lv1 = SphereLogicalVolume(r={{ sphere_logical_volume_r_2 | lit("plain") }}, x={{ sphere_logical_volume_x | lit("sci") }}, y={{ sphere_logical_volume_y | lit("sci") }}, z={{ sphere_logical_volume_z | lit("sci") }})
+
+# Create logical volume lv2 as an analytical rcc
+lv2 = RCCLogicalVolume(
+    r={{ rcclogical_volume_r_2 | lit("plain") }},
+    x0={{ rcclogical_volume_x0_2 | lit("dot") }},
+    y0={{ rcclogical_volume_y0_2 | lit("dot") }},
+    z0={{ rcclogical_volume_z0_2 | lit("plain") }},
+    vx={{ rcclogical_volume_vx_2 | lit("sci") }},
+    vy={{ rcclogical_volume_vy_2 | lit("sci") }},
+    vz={{ rcclogical_volume_vz_2 | lit("plain") }},
+)
+
+# Create logical volume lv3 as boolean: True if cell is in lv2 and False if in lv1
+lv3 = BooleanLogicalVolume(parts=[
+    {"op": {{ op | lit("bool") }}, "lv": lv2},
+    {"op": {{ op_2 | lit("bool") }}, "lv": lv1}
+])
+
+# Assign block ID 2 to all cells in lv3 which is the part of lv2 that is not in lv1
+grid.SetBlockIDFromLogicalVolume(lv3, 2, True)
+
+# Assign block ID 3 to all cells in lv1
+grid.SetBlockIDFromLogicalVolume(lv1, 3, True)
+
+volumes_per_block = grid.ComputeVolumePerBlockID()
+for block_id, volume in volumes_per_block.items():
+    print(f"4-Block {block_id}: volume = {volume:.4f}")
+
+# Export
+grid.ExportToPVTU("Bool_mesh")
+
+# Set up orthogonal 3D geometry
+nodes = []
+N = {{ N | lit("int") }}
+L = {{ L | lit("plain") }}
+xmin = -L / 2
+dx = L / N
+for i in range(N + 1):
+    nodes.append(xmin + i * dx)
+meshgen = OrthogonalMeshGenerator(node_sets=[nodes, nodes, nodes])
+grid = meshgen.Execute()
+
+# Assign blockID of 1 to the whole domain
+grid.SetUniformBlockID(1)
+
+# Create a logical volume as an analytical RPP
+lv = RPPLogicalVolume(
+    xmin={{ rpplogical_volume_xmin | lit("plain") }},
+    xmax={{ rpplogical_volume_xmax | lit("plain") }},
+    ymin={{ ymin | lit("plain") }},
+    ymax={{ ymax | lit("plain") }},
+    zmin={{ zmin | lit("plain") }},
+    zmax={{ zmax | lit("plain") }},
+)
+# Assign mat ID 2 to lv of RPP
+grid.SetBlockIDFromLogicalVolume(lv, 2, True)
+
+# Create a logical volume as the interior of a skin mesh
+surfmesh = SurfaceMesh()
+surfmesh.ImportFromOBJFile("./cube_with_normals.obj", False, Vector3(0, 0, 0))
+lv_skinmesh = SurfaceMeshLogicalVolume(surface_mesh=surfmesh)
+# Assign mat ID 3 to lv of skin mesh
+grid.SetBlockIDFromLogicalVolume(lv_skinmesh, 3, True)
+
+volumes_per_block = grid.ComputeVolumePerBlockID()
+for block_id, volume in volumes_per_block.items():
+    print(f"5-Block {block_id}: volume = {volume:.4f}")
+
+# Export to vtk
+grid.ExportToPVTU("lv_skinmesh")
+
+from IPython import get_ipython
+
+def finalize_env():
+    Finalize()
+    MPI.Finalize()
+
+ipython_instance = get_ipython()
+if ipython_instance is not None:
+    ipython_instance.events.register("post_execute", finalize_env)

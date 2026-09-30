@@ -1,0 +1,185 @@
+import math
+import sys
+from pathlib import Path
+
+import numpy as np
+from mpi4py import MPI
+
+comm = MPI.COMM_WORLD
+rank = comm.rank
+size = comm.size
+
+if rank == 0:
+    print(f"Running with {size} MPI processes.")
+
+tutorial_dir = Path.cwd().resolve()
+
+# Prefer a source-tree build when this notebook is executed from the documentation tree.
+# This avoids accidentally importing a stale installed wheel during development.
+for candidate in [tutorial_dir, *tutorial_dir.parents]:
+    if (candidate / "build/pyopensn").exists():
+        sys.path.insert(0, str(candidate / "build"))
+        break
+
+from pyopensn.mesh import FromFileMeshGenerator, KBAGraphPartitioner
+from pyopensn.xs import MultiGroupXS
+from pyopensn.aquad import GLCProductQuadrature2DXY
+from pyopensn.solver import DiscreteOrdinatesProblem, PowerIterationKEigenSolver, CMFDAcceleration
+from pyopensn.context import UseColor, Finalize
+
+UseColor(False)
+
+mesh_filepath = tutorial_dir / "pincell.obj"
+xs_filepath = tutorial_dir / "mgxs_2B_one_eighth_SHEM-361.h5"
+
+if not mesh_filepath.exists() or not xs_filepath.exists():
+    raise RuntimeError(
+        "This tutorial expects pincell.obj and mgxs_2B_one_eighth_SHEM-361.h5 "
+        "in the same directory as cmfd.ipynb. Run the notebook from "
+        "doc/source/tutorials/problems/eigenvalue or copy both files alongside it."
+    )
+
+if rank == 0:
+    print(f"Mesh: {mesh_filepath}")
+    print(f"Cross sections: {xs_filepath}")
+
+def make_spatial_partitioner(filename: Path) -> KBAGraphPartitioner:
+    num_partitions = MPI.COMM_WORLD.size
+    nx = math.isqrt(num_partitions)
+    while num_partitions % nx != 0:
+        nx -= 1
+    ny = num_partitions // nx
+    if nx < ny:
+        nx, ny = ny, nx
+
+    xmin = ymin = float("inf")
+    xmax = ymax = -float("inf")
+    with open(filename, encoding={{ encoding | lit("dq") }}) as mesh_file:
+        for line in mesh_file:
+            if not line.startswith("v "):
+                continue
+            _, x, y, *_ = line.split()
+            x = float(x)
+            y = float(y)
+            xmin = min(xmin, x)
+            xmax = max(xmax, x)
+            ymin = min(ymin, y)
+            ymax = max(ymax, y)
+
+    xcuts = [xmin + (xmax - xmin) * i / nx for i in range(1, nx)]
+    ycuts = [ymin + (ymax - ymin) * i / ny for i in range(1, ny)]
+    return KBAGraphPartitioner(nx=nx, ny=ny, xcuts=xcuts, ycuts=ycuts)
+
+meshgen = FromFileMeshGenerator(
+    filename=str(mesh_filepath),
+    partitioner=make_spatial_partitioner(mesh_filepath),
+)
+
+grid = meshgen.Execute()
+grid.SetOrthogonalBoundaries()
+
+h5_mat_names = [
+    "fuel",
+    "fuel clad",
+    "fuel gap",
+    "moderator",
+]
+
+xs_dict = {}
+xs_list = []
+for name in h5_mat_names:
+    xs = MultiGroupXS()
+    xs.LoadFromOpenMC(str(xs_filepath), name, 294.0)
+    xs_dict[name] = xs
+    xs_list.append(xs)
+
+num_groups = xs_list[0].num_groups
+scattering_order = {{ scattering_order | lit("int") }}
+xs_mapping = [{"block_ids": [block_id], "xs": xs} for block_id, xs in enumerate(xs_list)]
+
+if rank == 0:
+    print(f"Loaded {len(xs_list)} materials with {num_groups} energy groups.")
+
+n_polar = {{ n_polar | lit("int") }}
+n_azimuthal = {{ n_azimuthal | lit("int") }}
+
+pquad = GLCProductQuadrature2DXY(
+    n_polar=n_polar,
+    n_azimuthal=n_azimuthal,
+    scattering_order=scattering_order,
+)
+
+group_sets = [
+    {
+        "groups_from_to": [0, num_groups - 1],
+        "angular_quadrature": pquad,
+        "inner_linear_method": {{ inner_linear_method | lit("dq") }},
+        "l_abs_tol": {{ l_abs_tol | lit("sci") }},
+        "l_max_its": {{ l_max_its | lit("int") }},
+    }
+]
+
+bound_conditions = [
+    {"name": {{ xmin_name | lit("dq") }}, "type": {{ xmin_type | lit("dq") }}},
+    {"name": {{ xmax_name | lit("dq") }}, "type": {{ xmax_type | lit("dq") }}},
+    {"name": {{ ymin_name | lit("dq") }}, "type": {{ ymin_type | lit("dq") }}},
+    {"name": {{ ymax_name | lit("dq") }}, "type": {{ ymax_type | lit("dq") }}},
+]
+
+phys = DiscreteOrdinatesProblem(
+    mesh=grid,
+    num_groups=num_groups,
+    groupsets=group_sets,
+    xs_map=xs_mapping,
+    boundary_conditions=bound_conditions,
+    options={
+        "verbose_inner_iterations": {{ verbose_inner_iterations | lit("bool") }},
+        "verbose_outer_iterations": {{ verbose_outer_iterations | lit("bool") }},
+        "use_precursors": {{ use_precursors | lit("bool") }},
+        "power_default_kappa": {{ power_default_kappa | lit("plain") }},
+        "save_angular_flux": {{ save_angular_flux | lit("bool") }},
+    },
+)
+
+k_tol = {{ k_tol | lit("sci") }}
+target_coarse_groups = {{ target_coarse_groups | lit("int") }}
+
+cmfd = CMFDAcceleration(
+    problem=phys,
+    current_closure={{ current_closure | lit("dq") }},
+    coarse_mesh={{ coarse_mesh | lit("dq") }},
+    aggregation_size={{ aggregation_size | lit("int") }},
+    group_aggregation_size=(num_groups + target_coarse_groups - 1) // target_coarse_groups,
+    relaxation={{ relaxation | lit("plain") }},
+    update_wgs_max_its={{ update_wgs_max_its | lit("int") }},
+    update_wgs_abs_tol={{ update_wgs_abs_tol | lit("sci") }},
+    balance_residual_tolerance={{ balance_residual_tolerance | lit("sci") }},
+    coarse_solver_policy={{ coarse_solver_policy | lit("dq") }},
+)
+
+k_solver = PowerIterationKEigenSolver(
+    problem=phys,
+    acceleration=cmfd,
+    k_tol=k_tol,
+)
+
+k_solver.Initialize()
+k_solver.Execute()
+
+keff = k_solver.GetEigenvalue()
+if rank == 0:
+    print(f"CMFD k-eigenvalue = {keff:.8f}")
+
+MPI.COMM_WORLD.Barrier()
+
+from IPython import get_ipython
+
+
+def finalize_env():
+    Finalize()
+    MPI.Finalize()
+
+
+ipython_instance = get_ipython()
+if ipython_instance is not None:
+    ipython_instance.events.register("post_execute", finalize_env)

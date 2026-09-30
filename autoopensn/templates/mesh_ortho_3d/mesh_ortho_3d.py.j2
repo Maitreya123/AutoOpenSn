@@ -1,0 +1,54 @@
+import os
+from mpi4py import MPI
+rank = MPI.COMM_WORLD.rank
+
+
+from pyopensn.mesh import OrthogonalMeshGenerator, KBAGraphPartitioner, PETScGraphPartitioner
+from pyopensn.context import UseColor, Finalize
+
+UseColor(False)
+
+length = {{ length | lit("dot") }}
+n_cells = {{ n_cells | lit("int") }}
+dx = length / n_cells
+nodes = [-length/2 + i * dx for i in range(n_cells + 1)]
+
+meshgen = OrthogonalMeshGenerator(
+    node_sets=[nodes, nodes, nodes],
+    partitioner=KBAGraphPartitioner(
+        nx={{ nx | lit("int") }},
+        ny={{ ny | lit("int") }},
+        nz={{ nz | lit("int") }},
+        xcuts={{ xcuts | lit("list:sci") }},
+        ycuts={{ ycuts | lit("list:sci") }},
+        zcuts={{ zcuts | lit("list:sci") }},
+    ),
+)
+grid = meshgen.Execute()
+
+grid.SetUniformBlockID(0)
+
+grid.ExportToPVTU("ortho_3D_KBA")
+
+meshgen2 = OrthogonalMeshGenerator(
+    node_sets=[nodes, nodes, nodes],
+    partitioner=PETScGraphPartitioner(type={{ petsc_graph_partitioner_type | lit("sq") }}),
+)
+grid2 = meshgen2.Execute()
+grid2.SetUniformBlockID(0)
+
+grid2.ExportToPVTU("ortho_3D_Parmetis")
+
+n_glob_cells = grid2.GetGlobalNumberOfCells()
+if rank == 0:
+    print(f"Number of cells = {n_glob_cells}")
+
+from IPython import get_ipython
+
+def finalize_env():
+    Finalize()
+    MPI.Finalize()
+
+ipython_instance = get_ipython()
+if ipython_instance is not None:
+    ipython_instance.events.register("post_execute", finalize_env)

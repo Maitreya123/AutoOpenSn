@@ -1,0 +1,84 @@
+from pathlib import Path
+
+from mpi4py import MPI
+from pyopensn.aquad import GLProductQuadrature1DSlab
+from pyopensn.context import Finalize
+from pyopensn.mesh import OrthogonalMeshGenerator
+from pyopensn.post import VolumePostprocessor
+from pyopensn.solver import DiscreteOrdinatesProblem, SteadyStateSourceSolver
+from pyopensn.source import VolumetricSource
+from pyopensn.xs import MultiGroupXS
+
+rank = MPI.COMM_WORLD.rank
+nodes = [i / 20.0 for i in range(21)]
+mesh = OrthogonalMeshGenerator(node_sets=[nodes]).Execute()
+mesh.SetUniformBlockID(0)
+
+xs = MultiGroupXS()
+xs.LoadFromOpenMC(str(Path("LANL30/OpenMC/Concrete.h5")), "set1", 294.0)
+num_groups = xs.num_groups
+
+source_strength = [0.0] * num_groups
+source_strength[0] = 1.0
+source = VolumetricSource(block_ids={{ volumetric_source_block_ids | lit("list:int") }}, group_strength=source_strength)
+quadrature = GLProductQuadrature1DSlab(n_polar={{ n_polar | lit("int") }}, scattering_order={{ scattering_order | lit("int") }})
+
+groupset_ranges = [(0, 9), (10, 19), (20, 29)]
+groupsets = [
+    {
+        "groups_from_to": group_range,
+        "angular_quadrature": quadrature,
+        "inner_linear_method": {{ inner_linear_method | lit("dq") }},
+        "l_abs_tol": {{ l_abs_tol | lit("sci") }},
+        "l_max_its": {{ l_max_its | lit("int") }},
+    }
+    for group_range in groupset_ranges
+]
+
+problem = DiscreteOrdinatesProblem(
+    mesh=mesh,
+    num_groups=num_groups,
+    groupsets=groupsets,
+    xs_map=[{"block_ids": {{ xs_map_block_ids | lit("list:int") }}, "xs": xs}],
+    volumetric_sources=[source],
+    boundary_conditions=[
+        {"name": {{ zmin_name | lit("dq") }}, "type": {{ zmin_type | lit("dq") }}},
+        {"name": {{ zmax_name | lit("dq") }}, "type": {{ zmax_type | lit("dq") }}},
+    ],
+    options={
+        "max_ags_iterations": {{ max_ags_iterations | lit("int") }},
+        "ags_tolerance": {{ ags_tolerance | lit("sci") }},
+        "verbose_inner_iterations": {{ verbose_inner_iterations | lit("bool") }},
+    },
+)
+solver = SteadyStateSourceSolver(problem=problem)
+solver.Initialize()
+solver.Execute()
+
+group_averages = []
+for group in range(num_groups):
+    postprocessor = VolumePostprocessor(problem=problem, value_type={{ value_type | lit("dq") }}, group=group)
+    postprocessor.Execute()
+    group_averages.append(float(postprocessor.GetValue()[0][0]))
+
+groupset_fluxes = [
+    sum(group_averages[first : last + 1])
+    for first, last in groupset_ranges
+]
+absorption_rate = sum(
+    xs.sigma_a[group] * group_averages[group]
+    for group in range(num_groups)
+)
+balance_error = abs(absorption_rate - 1.0)
+if rank == 0:
+    for (first, last), flux in zip(groupset_ranges, groupset_fluxes):
+        print(f"Groupset {first}-{last} integrated flux={flux:.8e}")
+    print(f"Concrete absorption rate={absorption_rate:.6e}")
+    print(f"Groupset balance error={balance_error:.6e}")
+assert min(group_averages) > -1.0e-10
+assert balance_error < 1.0e-6
+if "opensn_console" not in globals():
+    from IPython import get_ipython
+    if get_ipython() is not None:
+        Finalize()
+        MPI.Finalize()

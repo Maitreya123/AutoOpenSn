@@ -1,0 +1,221 @@
+from mpi4py import MPI
+size = MPI.COMM_WORLD.size
+rank = MPI.COMM_WORLD.rank
+barrier = MPI.COMM_WORLD.barrier
+
+if rank == 0:
+    print(f"Running the first LBS adjoint example with {size} MPI processors.")
+
+import os
+import numpy as np
+
+
+from pyopensn.mesh import OrthogonalMeshGenerator
+from pyopensn.xs import MultiGroupXS
+from pyopensn.source import PointSource, VolumetricSource
+from pyopensn.aquad import GLProductQuadrature1DSlab
+from pyopensn.solver import DiscreteOrdinatesProblem, SteadyStateSourceSolver
+from pyopensn.response import ResponseEvaluator
+from pyopensn.math import Vector3
+from pyopensn.fieldfunc import FieldFunctionInterpolationVolume, \
+                               FieldFunctionInterpolationLine, \
+                               FieldFunctionGridBased
+from pyopensn.logvol import RPPLogicalVolume
+from pyopensn.context import UseColor, Finalize
+
+N = {{ N | lit("int") }}
+L = {{ L | lit("plain") }}
+ds = L / N
+nodesz = []
+for i in range(N + 1):
+    nodesz.append(i * ds)
+
+meshgen = OrthogonalMeshGenerator( node_sets=[nodesz] )
+grid = meshgen.Execute()
+
+grid.SetUniformBlockID(0)
+
+source = RPPLogicalVolume(
+            infx=True,
+            infy=True,
+            zmin={{ zmin | lit("plain") }}, zmax={{ zmax | lit("plain") }},
+)
+grid.SetBlockIDFromLogicalVolume(source, 1, True)
+
+det = RPPLogicalVolume(
+            infx=True,
+            infy=True,
+            zmin={{ rpplogical_volume_zmin | lit("plain") }}, zmax={{ rpplogical_volume_zmax | lit("plain") }},
+)
+grid.SetBlockIDFromLogicalVolume(det, 2, True)
+
+xs_bkgrnd = MultiGroupXS()
+xs_bkgrnd.CreateSimpleOneGroup(sigma_t={{ sigma_t | lit("sci") }}, c={{ c | lit("sci") }})
+
+xs_src = MultiGroupXS()
+xs_src.CreateSimpleOneGroup(sigma_t={{ create_simple_one_group_sigma_t | lit("plain") }}, c={{ create_simple_one_group_c | lit("plain") }})
+
+sig_det = {{ sig_det | lit("plain") }}
+xs_det = MultiGroupXS()
+xs_det.CreateSimpleOneGroup(sigma_t=sig_det, c={{ create_simple_one_group_c_2 | lit("sci") }})
+
+xsecs = [{"block_ids": {{ xs_map_block_ids | lit("list:int") }}, "xs": xs_bkgrnd},
+         {"block_ids": {{ xs_map_block_ids_2 | lit("list:int") }}, "xs": xs_src},
+         {"block_ids": {{ xs_map_block_ids_3 | lit("list:int") }}, "xs": xs_det}]
+
+pquad = GLProductQuadrature1DSlab(n_polar={{ n_polar | lit("int") }}, 
+                                  scattering_order={{ scattering_order | lit("int") }})
+
+num_groups = {{ num_groups | lit("int") }}
+grpsets = [
+    {
+        "groups_from_to": (0, num_groups-1),
+        "angular_quadrature": pquad,
+        "inner_linear_method": {{ inner_linear_method | lit("dq") }},
+        "l_abs_tol": {{ l_abs_tol | lit("sci") }},
+        "l_max_its": {{ l_max_its | lit("int") }},
+        "gmres_restart_interval": {{ gmres_restart_interval | lit("int") }},
+    },
+]
+
+Q = {{ Q | lit("plain") }}
+dL = {{ dL | lit("plain") }}
+vol_src = VolumetricSource(block_ids={{ volumetric_source_block_ids | lit("list:int") }}, group_strength=[Q/dL])
+
+phys = DiscreteOrdinatesProblem(
+    mesh=grid,
+    num_groups=num_groups,
+    groupsets=grpsets,
+    xs_map=xsecs,
+    volumetric_sources = [vol_src],
+    boundary_conditions=[
+        {"name": {{ zmin_name | lit("dq") }}, "type": {{ zmin_type | lit("dq") }}},
+        {"name": {{ zmax_name | lit("dq") }}, "type": {{ zmax_type | lit("dq") }}}
+    ],
+)
+
+ss_solver = SteadyStateSourceSolver(problem=phys)
+ss_solver.Initialize()
+
+ss_solver.Execute()
+
+fflist = phys.GetScalarFluxFieldFunction(only_scalar_flux={{ only_scalar_flux | lit("bool") }})
+ffvol = FieldFunctionInterpolationVolume()
+ffvol.SetOperationType("sum")
+ffvol.SetLogicalVolume(det)
+ffvol.AddFieldFunction(fflist[0])
+ffvol.Execute()
+
+fwd_flux = ffvol.GetValue()
+fwd_resp = sig_det*fwd_flux
+
+if rank == 0:
+    print(f"Forward Total Flux : {fwd_flux:.6e}")
+    print(f"Forward Total Response : {fwd_resp:.6e}")
+
+FFGrid = FieldFunctionGridBased
+FFGrid.ExportMultipleToPVTU([fflist[0]], "Flux/fwdflux_p")
+
+for g in range(num_groups):
+    # Linear Field Function
+    ffline = FieldFunctionInterpolationLine()
+    ffline.SetInitialPoint(Vector3(0.0, 0.0, 0.0))
+    ffline.SetFinalPoint(Vector3(0.0, 0.0, 10.0))
+    ffline.SetNumberOfPoints(1000)
+    ffline.AddFieldFunction(fflist[0])
+    ffline.Execute()
+    ffline.ExportToCSV("Flux/detector")
+
+adj_src = VolumetricSource(logical_volume=det, group_strength={{ group_strength | lit("list:plain") }})
+
+phys.SetAdjoint()
+phys.SetVolumetricSources(clear_volumetric_sources = {{ clear_volumetric_sources | lit("bool") }})
+phys.SetVolumetricSources(volumetric_sources = [adj_src]) 
+ss_solver.Execute()
+
+data_dir = {{ data_dir | lit("dq") }}
+os.makedirs(data_dir, exist_ok={{ exist_ok | lit("bool") }})
+    
+phys.WriteFluxMoments(data_dir+"/adjflux_p")
+
+fwd_src = {'material': [{'block_id': {{ block_id | lit("int") }}, 'strength': [Q/dL]}]}
+
+evaluator = ResponseEvaluator(problem = phys)
+evaluator.SetOptions(
+    buffers = [{
+        'name': {{ detector_name | lit("sq") }},
+        'file_prefixes': {'flux_moments': data_dir+'/adjflux_p'}
+    }],
+    sources = fwd_src
+)
+
+adj_flux = evaluator.EvaluateResponse("detector")
+adj_resp = sig_det*adj_flux
+
+
+if rank == 0:
+    print(f"{'Adjoint Total Flux :'} {adj_flux:.6e}")
+    print(f"{'Adjoint Total Response :'} {adj_resp:.6e}")
+
+fflist = phys.GetScalarFluxFieldFunction(only_scalar_flux={{ get_scalar_flux_field_function_only_scalar_flux | lit("bool") }})
+FFGrid = FieldFunctionGridBased
+FFGrid.ExportMultipleToPVTU([fflist[0]], "Flux/adjflux_p")
+
+for g in range(num_groups):
+    # Linear Field Function
+    ffline = FieldFunctionInterpolationLine()
+    ffline.SetInitialPoint(Vector3(0.0, 0.0, 0.0))
+    ffline.SetFinalPoint(Vector3(0.0, 0.0, 10.0))
+    ffline.SetNumberOfPoints(1000)
+    ffline.AddFieldFunction(fflist[0])
+    ffline.Execute()
+    ffline.ExportToCSV("Flux/adjdetector")
+
+import csv
+from os import walk
+import matplotlib.pyplot as plt
+
+# Convert each CSV to a python dictionary
+def CSVToDict(filename):
+    data = {}
+    with open(filename, newline={{ newline | lit("dq") }}) as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            for key, value in row.items():
+                data.setdefault(key, []).append(float(value))
+    return data
+
+# Collect each flux distribution into a dictionary
+# Flux -> detector   -> {x,y,z,phi_g001_m00}
+#      -> adjdetector -> {x,y,z,phi_g002_m00}
+Flux = {}
+for (dirpath, dirnames, filenames) in walk('Flux/'):
+   for filename in filenames:
+        if filename.split(".")[1] == "csv":
+            key = filename.split('.')[0].split('_')[0]
+            Flux[key] = CSVToDict("Flux/"+filename)
+
+z = Flux['detector']['z']
+fwd = Flux['detector']['phi_g000_m00']
+adj = Flux['adjdetector']['phi_g000_m00']
+
+plt.figure()
+plt.plot(z, fwd, label={{ label | lit("dq") }})
+plt.plot(z, adj, label={{ plot_label | lit("dq") }})
+plt.xlabel("Distance (cm)")
+plt.ylabel(r"$\phi(z)$")
+plt.legend()
+plt.grid()
+plt.show()
+
+from IPython import get_ipython
+
+def finalize_env():
+    Finalize()
+    MPI.Finalize()
+
+ipython_instance = get_ipython()
+if ipython_instance is not None:
+    ipython_instance.events.register("post_execute", finalize_env)
+
+os.system("rm -rf Data Flux AdjFlux")

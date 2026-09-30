@@ -1,0 +1,254 @@
+name: reed_1d
+description: >-
+  The standard Reed 1D one-group slab problem: five material regions with
+  widths 2/1/2/1/2 cm, a strong absorber and a strong source at the left,
+  a void in the middle, and a scattering region at the right. Vacuum on both
+  faces. Solved as a steady-state fixed-source problem with a balance printout.
+
+source: test/python/modules/linear_boltzmann_solvers/transport_steady/reed_balance.py
+opensn_commit: 2fd4a19ceade4f8da581a5029c68f474d3333ccb
+script: reed_1d.py.j2
+
+notes: >-
+  Rendering this template with every parameter at its default reproduces the
+  source script byte for byte, which tests/test_template_reed.py asserts.
+
+  Two parameters are rendered conditionally, so that the default render stays
+  byte-identical to a source script that does not mention them.
+  gmres_restart_interval appears only when inner_linear_method is petsc_gmres,
+  which is the only method it affects. sweep_type appears only when it differs
+  from AAH, which is OpenSn's own default; setting it to CBC reproduces
+  reed_balance_cbc.py's single added line.
+
+  Block ids are fixed by the benchmark: the volumetric sources live in material
+  0 and material 3, and there are always five materials. Only their strengths
+  are tunable.
+
+observables:
+  - avg_flux
+  - sweeps
+  - iterations
+  - wall_time
+  - balance_residual
+
+gold:
+  tests_json: test/python/modules/linear_boltzmann_solvers/transport_steady/tests.json
+  case: reed_balance.py
+  # These hold only at default parameters. parse/gold.py refuses to compare a
+  # run whose parameters differ from the defaults in any way that changes the
+  # physics, because a gold value for a different problem is worse than none.
+  keys:
+    Absorption=: absorption_rate
+    OutFlow=: outflow_rate
+  # Copied from that tests.json at the pinned commit so that a gold check works
+  # on a machine with no OpenSn checkout, which is most machines. The checkout
+  # still wins when it is present, so these cannot drift silently.
+  values:
+    Absorption=: 100.6178
+    OutFlow=: 0.3821562
+  tolerances:
+    Absorption=:
+      abs_tol: 1.0e-6
+    OutFlow=:
+      abs_tol: 1.0e-6
+
+parameters:
+
+  # --- mesh ---------------------------------------------------------------
+
+  widths:
+    group: mesh
+    type: float_list
+    length: 5
+    default: [2., 1., 2., 1., 2.]
+    minimum: 0.001
+    maximum: 1000.0
+    description: Width in cm of each of the five material regions, left to right.
+
+  nrefs:
+    group: mesh
+    type: int_list
+    length: 5
+    default: [200, 200, 200, 200, 200]
+    minimum: 1
+    maximum: 20000
+    description: >-
+      Number of uniform cells in each material region. The upper bound is a
+      guard against a spec that would generate a mesh too large to solve in the
+      time a parameter study allows, not a code limit.
+
+  # --- materials ----------------------------------------------------------
+
+  total:
+    group: materials
+    type: float_list
+    length: 5
+    default: [50., 5., 0., 1., 1.]
+    minimum: 0.0
+    maximum: 1000.0
+    description: >-
+      Total macroscopic cross section in 1/cm for each region. The third region
+      is a void, so zero is a legitimate value.
+
+  c:
+    group: materials
+    type: float_list
+    length: 5
+    default: [0., 0., 0., 0.9, 0.9]
+    minimum: 0.0
+    maximum: 1.0
+    description: >-
+      Scattering ratio for each region, passed to
+      MultiGroupXS.CreateSimpleOneGroup. Above 1.0 the medium is multiplying,
+      which this benchmark is not.
+
+  # --- sources ------------------------------------------------------------
+
+  src_block0_strength:
+    group: source
+    type: float
+    default: 50.
+    minimum: 0.0
+    maximum: 1.0e+6
+    description: Isotropic volumetric source strength in the first material region.
+
+  src_block3_strength:
+    group: source
+    type: float
+    default: 1.
+    minimum: 0.0
+    maximum: 1.0e+6
+    description: Isotropic volumetric source strength in the fourth material region.
+
+  # --- angular quadrature -------------------------------------------------
+
+  n_polar:
+    group: quadrature
+    type: int
+    default: 128
+    minimum: 2
+    maximum: 1024
+    description: >-
+      Polar angle count for GLProductQuadrature1DSlab. Must be even; the
+      Gauss-Legendre product quadrature for a slab has no odd form.
+
+  scattering_order:
+    group: quadrature
+    type: int
+    default: 0
+    minimum: 0
+    maximum: 8
+    description: >-
+      Anisotropic scattering order. The Reed benchmark cross sections are
+      isotropic, so anything above 0 adds moments that carry no information.
+
+  # --- solver -------------------------------------------------------------
+
+  inner_linear_method:
+    group: solver
+    type: str
+    default: petsc_gmres
+    choices: [classic_richardson, petsc_richardson, petsc_gmres, petsc_bicgstab]
+    description: >-
+      Groupset inner solver. The four allowed values are exactly those OpenSn
+      accepts at the pinned commit
+      (modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+
+  l_abs_tol:
+    group: solver
+    type: float
+    default: 1.0e-9
+    minimum: 1.0e-18
+    maximum: 1.0e-2
+    description: >-
+      Inner solve convergence tolerance. The lower bound is OpenSn's own
+      constraint. The upper bound is this template's: a tolerance looser than
+      1e-2 does not converge anything worth tabulating.
+
+  l_max_its:
+    group: solver
+    type: int
+    default: 300
+    minimum: 1
+    maximum: 100000
+    description: >-
+      Hard cap on inner iterations. Reaching it means the case did not
+      converge, which the parser reports rather than hides.
+
+  gmres_restart_interval:
+    group: solver
+    type: int
+    default: 30
+    minimum: 1
+    maximum: 1000
+    description: >-
+      Krylov vectors GMRES keeps before restarting. Only affects petsc_gmres,
+      and is rendered into the script only for that method. The lower bound is
+      OpenSn's own constraint.
+
+  sweep_type:
+    group: solver
+    type: str
+    default: AAH
+    choices: [AAH, CBC]
+    description: >-
+      Sweep implementation. AAH is OpenSn's default and is not written into the
+      script; CBC is, which reproduces reed_balance_cbc.py.
+
+  # --- boundaries ---------------------------------------------------------
+
+  bc_zmin_type:
+    group: boundary
+    type: str
+    default: vacuum
+    choices: [vacuum, reflecting]
+    description: >-
+      Left boundary condition. OpenSn also accepts isotropic and arbitrary, but
+      both need additional data this template does not render, so they are not
+      offered here.
+
+  bc_zmax_type:
+    group: boundary
+    type: str
+    default: vacuum
+    choices: [vacuum, reflecting]
+    description: Right boundary condition. Same restriction as bc_zmin_type.
+
+  # --- output -------------------------------------------------------------
+
+  compute_balance:
+    group: output
+    type: bool
+    default: true
+    description: >-
+      Whether the solver computes and prints the particle balance table. The
+      balance_residual observable comes from it, as do the two gold values.
+
+  emit_avg_flux:
+    group: output
+    type: bool
+    default: false
+    description: >-
+      Whether to append a volume-averaged scalar flux interpolation and print
+      it as AvgFlux=. Off by default so that the default render matches the
+      source script; the GMRES convergence study turns it on, because the
+      relative flux difference between cases is what that study measures.
+
+  # --- runtime ------------------------------------------------------------
+
+  pyopensn_path:
+    group: runtime
+    type: str
+    default: "../../../../../"
+    description: >-
+      Path appended to sys.path so that a script sitting inside the OpenSn
+      checkout can import pyopensn. The default is the value in the source
+      script, which is relative to its location in the regression tree. A
+      generated script in runs/ needs either an absolute path to an OpenSn
+      build or a pip-installed pyopensn, in which case this value is harmless.
+
+  header_comment:
+    group: runtime
+    type: str
+    default: Standard Reed 1D 1-group problem
+    description: The one-line comment at the top of the script.

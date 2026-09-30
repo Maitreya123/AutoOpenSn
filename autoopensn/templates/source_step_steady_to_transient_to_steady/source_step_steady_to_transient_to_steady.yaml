@@ -1,0 +1,387 @@
+name: source_step_steady_to_transient_to_steady
+description: 'Switching From Steady-State to Transient to Steady-State in OpenSn.
+  `jupyter nbconvert --to python --execute source_step_steady_to_transient_to_steady.ipynb`
+  To run in parallel (for example, 4 ranks): `mpiexec -n 4 jupyter nbconvert --to
+  python --execute source_step_steady_to_transient_to_steady.ipynb` We construct a
+  1D Cartesian mesh (10 cells on \([0,1]\)) so this tutorial focuses on workflow behavior
+  rather than geometry complexity. Assign a single material ID (`0`) to all cells.
+  Use a one-group pure absorber model: $$\Sigma_t = 1.0$$ $$\Sigma_s = 0.0$$ For this
+  setup, the steady source-driven solution is $$\phi_{ss} = Q / \Sigma_t$$. 1. steady-state…'
+source: doc/source/tutorials/problems/transient/source_step_steady_to_transient_to_steady.ipynb
+opensn_commit: 2fd4a19ceade4f8da581a5029c68f474d3333ccb
+script: source_step_steady_to_transient_to_steady.py.j2
+generated_from: problems/transient/source_step_steady_to_transient_to_steady.ipynb
+num_procs: 1
+notes: 'Generated from the OpenSn tutorial problems/transient/source_step_steady_to_transient_to_steady.ipynb
+  at the pinned commit. Do not edit
+
+  by hand: regenerate with `autoopensn scenarios --rebuild`, or the edit is lost.
+
+
+  Rendering this template with every parameter at its default reproduces the
+
+  tutorial''s script character for character, which the generator verifies before
+
+  writing and the test suite re-checks on every run.
+
+
+  35 literal(s) in the script were turned into parameters. 0 were left
+
+  as constants because their notation could not be reproduced exactly, which is
+
+  the conservative direction: a knob that corrupts the script is worse than a
+
+  constant.
+
+
+  A parameter whose provenance is `inferred` has a range scaled from the value the
+
+  tutorial itself uses. That is a guard against an absurd study, not a limit the
+
+  code enforces, and it is the first thing to widen when a legitimate study is
+
+  rejected.
+
+  '
+observables:
+- sweeps
+- iterations
+- wall_time
+- source_step_workflow_ok
+parameters:
+  only_scalar_flux:
+    group: misc
+    type: bool
+    default: true
+    provenance: inferred
+    description: Keyword argument only_scalar_flux of GetScalarFluxFieldFunction.
+      Range is a guard scaled from the tutorial's own value, not a code limit; widen
+      it by hand if a study needs more.
+  num_cells_1d:
+    group: mesh
+    type: int
+    default: 10
+    provenance: inferred
+    description: Script variable num_cells_1d. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  L:
+    group: misc
+    type: float
+    default: 1.0
+    provenance: inferred
+    description: 'From the tutorial: Run this notebook from an environment where the
+      pyopensn package is importable. Range is a guard scaled from the tutorial''s
+      own value, not a code limit; widen it by hand if a study needs more.'
+    minimum: 0
+    maximum: 10000.0
+  sigma_t:
+    group: materials
+    type: float
+    default: 1.0
+    provenance: physics
+    description: 'From the tutorial: The final steady solution should satisfy $$\phi_{ss,1}
+      = Q_1/\Sigma_t$$. Range from the quantity (a total cross section cannot be negative).'
+    minimum: 0.0
+  sigma_s:
+    group: materials
+    type: float
+    default: 0.0
+    provenance: inferred
+    description: Script variable sigma_s. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 1000
+  q0:
+    group: misc
+    type: float
+    default: 2.0
+    provenance: inferred
+    description: 'From the tutorial: steady-state source solve with `Q0`, 2. Range
+      is a guard scaled from the tutorial''s own value, not a code limit; widen it
+      by hand if a study needs more.'
+    minimum: 0
+    maximum: 10000.0
+  q1:
+    group: misc
+    type: float
+    default: 3.0
+    provenance: inferred
+    description: 'From the tutorial: transient with source stepped to `Q1`, 3. Range
+      is a guard scaled from the tutorial''s own value, not a code limit; widen it
+      by hand if a study needs more.'
+    minimum: 0
+    maximum: 10000.0
+  dt:
+    group: misc
+    type: float
+    default: 0.1
+    provenance: inferred
+    description: Script variable dt. Range is a guard scaled from the tutorial's own
+      value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 1000.0
+  t_end:
+    group: misc
+    type: float
+    default: 0.5
+    provenance: inferred
+    description: Script variable t_end. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 1000.0
+  volumetric_source_block_ids:
+    group: source
+    type: int_list
+    default:
+    - 0
+    provenance: inferred
+    description: Keyword argument ids of VolumetricSource. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 1000
+    length: 1
+  start_time:
+    group: misc
+    type: float
+    default: 0.0
+    provenance: inferred
+    description: Keyword argument start_time of VolumetricSource. Range is a guard
+      scaled from the tutorial's own value, not a code limit; widen it by hand if
+      a study needs more.
+    minimum: 0
+    maximum: 1000
+  end_time:
+    group: misc
+    type: float
+    default: 1000000000.0
+    provenance: inferred
+    description: Keyword argument end_time of VolumetricSource. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 10000000000000.0
+  volumetric_source_block_ids_2:
+    group: source
+    type: int_list
+    default:
+    - 0
+    provenance: inferred
+    description: Keyword argument 2 of VolumetricSource. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+    minimum: 0
+    maximum: 1000
+    length: 1
+  volumetric_source_start_time:
+    group: source
+    type: float
+    default: 0.0
+    provenance: inferred
+    description: Keyword argument time of VolumetricSource. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 1000
+  volumetric_source_end_time:
+    group: source
+    type: float
+    default: 1000000000.0
+    provenance: inferred
+    description: Keyword argument time of VolumetricSource. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 10000000000000.0
+  n_polar:
+    group: quadrature
+    type: int
+    default: 4
+    provenance: opensn
+    description: Keyword argument n_polar of GLProductQuadrature1DSlab. Range from
+      OpenSn itself (polar ordinates; must be even).
+    minimum: 2
+    maximum: 1024
+  scattering_order:
+    group: quadrature
+    type: int
+    default: 0
+    provenance: opensn
+    description: Keyword argument scattering_order of GLProductQuadrature1DSlab. Range
+      from OpenSn itself (moment order).
+    minimum: 0
+    maximum: 8
+  num_groups:
+    group: problem
+    type: int
+    default: 1
+    provenance: opensn
+    description: Keyword argument num_groups of DiscreteOrdinatesProblem. Range from
+      OpenSn itself (energy group count).
+    minimum: 1
+    maximum: 10000
+  inner_linear_method:
+    group: solver
+    type: str
+    default: petsc_richardson
+    provenance: opensn
+    description: Entry 'inner_linear_method' of the groupset block. Range from OpenSn
+      itself (allowable list from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    choices:
+    - classic_richardson
+    - petsc_richardson
+    - petsc_gmres
+    - petsc_bicgstab
+  l_abs_tol:
+    group: solver
+    type: float
+    default: 1.0e-08
+    provenance: opensn
+    description: Entry 'l_abs_tol' of the groupset block. Range from OpenSn itself
+      (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1.0e-18
+    maximum: 0.01
+  l_max_its:
+    group: solver
+    type: int
+    default: 200
+    provenance: opensn
+    description: Entry 'l_max_its' of the groupset block. Range from OpenSn itself
+      (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1
+    maximum: 100000
+  xs_map_block_ids:
+    group: materials
+    type: int_list
+    default:
+    - 0
+    provenance: inferred
+    description: Entry 'ids' of the xs_map block. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 1000
+    length: 1
+  zmin_name:
+    group: mesh
+    type: str
+    default: zmin
+    provenance: inferred
+    description: Entry 'zmin_name' of the zmin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  zmin_type:
+    group: mesh
+    type: str
+    default: reflecting
+    provenance: inferred
+    description: Entry 'zmin_type' of the zmin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  zmax_name:
+    group: mesh
+    type: str
+    default: zmax
+    provenance: inferred
+    description: Entry 'zmax_name' of the zmax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  zmax_type:
+    group: mesh
+    type: str
+    default: reflecting
+    provenance: inferred
+    description: Entry 'zmax_type' of the zmax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  save_angular_flux:
+    group: misc
+    type: bool
+    default: true
+    provenance: inferred
+    description: Script variable save_angular_flux. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  verbose_inner_iterations:
+    group: solver
+    type: bool
+    default: false
+    provenance: inferred
+    description: Script variable verbose_inner_iterations. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  verbose_outer_iterations:
+    group: solver
+    type: bool
+    default: false
+    provenance: inferred
+    description: Script variable verbose_outer_iterations. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  theta:
+    group: misc
+    type: float
+    default: 1.0
+    provenance: inferred
+    description: Keyword argument theta of TransientSolver. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 10000.0
+  initial_state:
+    group: misc
+    type: str
+    default: existing
+    provenance: inferred
+    description: Keyword argument initial_state of TransientSolver. Range is a guard
+      scaled from the tutorial's own value, not a code limit; widen it by hand if
+      a study needs more.
+  clear_volumetric_sources:
+    group: source
+    type: bool
+    default: true
+    provenance: inferred
+    description: Keyword argument clear_volumetric_sources of SetVolumetricSources.
+      Range is a guard scaled from the tutorial's own value, not a code limit; widen
+      it by hand if a study needs more.
+  step:
+    group: misc
+    type: int
+    default: 0
+    provenance: inferred
+    description: 'From the tutorial: transient with source stepped to `Q1`, 3. Range
+      is a guard scaled from the tutorial''s own value, not a code limit; widen it
+      by hand if a study needs more.'
+    minimum: 0
+    maximum: 1000
+  tol_td:
+    group: misc
+    type: float
+    default: 0.005
+    provenance: inferred
+    description: Script variable tol_td. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10.0
+  tol_ss:
+    group: misc
+    type: float
+    default: 0.001
+    provenance: inferred
+    description: Script variable tol_ss. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10.0
+data_files:
+- xs1g_prompt_crit.cxs
+gold:
+  case: source_step_steady_to_transient_to_steady.py
+  tests_json: doc/source/tutorials/problems/transient/tests.json
+  keys:
+    SOURCE_STEP_WORKFLOW_OK: source_step_workflow_ok
+  values:
+    SOURCE_STEP_WORKFLOW_OK: 1.0
+  tolerances:
+    SOURCE_STEP_WORKFLOW_OK:
+      abs_tol: 0.0
+      rel_tol: 0.0

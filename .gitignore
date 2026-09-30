@@ -1,0 +1,26 @@
+# Run artifacts. Every sweep point writes a directory here; none of it is source.
+runs/
+
+# Secrets. Provider keys are read from .env; only .env.example is tracked.
+.env
+
+# The run cache and any other SQLite database.
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# macOS
+.DS_Store

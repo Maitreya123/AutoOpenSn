@@ -1,0 +1,57 @@
+import os
+import sys
+import numpy as np
+from mpi4py import MPI
+
+from pyopensn.aquad import SLDFEsqQuadrature3DXYZ
+from pyopensn.context import UseColor, Finalize
+from pyopensn.math import Vector3
+
+UseColor(False)
+
+# Create a sLDFE quadrature with initial refinement level of 4.
+aquad = SLDFEsqQuadrature3DXYZ(level={{ level | lit("int") }}, scattering_order={{ scattering_order | lit("int") }})
+# Locally refine the quadrature near a given point with a given angular spread.
+# 30-degree cone around point [1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)]
+aquad.LocallyRefine(Vector3(1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)), 30.0 * np.pi / 180, False)
+# 10-degree cone around point [1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)]
+aquad.LocallyRefine(Vector3(1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)), 10.0 * np.pi / 180, False)
+aquad.PrintQuadratureToFile("sLDFE_data1")
+
+# add path to sLDFE plotter
+sys.path.append("../../../../../tools/ang_quad_plotting")
+# import the module
+from plot_sldfe_quadrature import plot_sldfe_quadrature
+plot_sldfe_quadrature("sLDFE_data1")
+
+# Create a sLDFE quadrature with initial refinement level of 4.
+aquad = SLDFEsqQuadrature3DXYZ(level={{ sldfesq_quadrature3_dxyz_level | lit("int") }}, scattering_order={{ sldfesq_quadrature3_dxyz_scattering_order | lit("int") }})
+# Locally refine the quadrature near a given point with a given angular spread.
+# 30-degree cone around point [1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)]
+aquad.LocallyRefine(Vector3(0., 0., 1.), 15.0 * np.pi / 180, True)
+# 10-degree cone around point [1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)]
+aquad.LocallyRefine(Vector3(0., 0., 1.), 4.0 * np.pi / 180, True)
+aquad.PrintQuadratureToFile("sLDFE_data2")
+
+print('number of directions =', len(aquad.omegas))
+
+plot_sldfe_quadrature("sLDFE_data2")
+
+import glob
+# Get a list of all files matching the pattern
+files_to_remove = glob.glob("sLDFE_data*.csv")
+
+# Loop through each file and remove it
+for file in files_to_remove:
+    os.remove(file)
+    print(f"Removed: {file}")
+
+from IPython import get_ipython
+
+def finalize_env():
+    Finalize()
+    MPI.Finalize()
+
+ipython_instance = get_ipython()
+if ipython_instance is not None:
+    ipython_instance.events.register("post_execute", finalize_env)

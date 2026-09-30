@@ -1,0 +1,787 @@
+name: detector
+description: 'A Multigroup 1D Detector. In this example we will explore using OpenSn''s
+  linear Boltzmann solver for computing detector response functions in a desired region
+  of interest (RoI). The following is a complete transport simulation example. Each
+  element of the simulation can be described in the sections below: - [Prerequisites](#prerequisites)
+  - [Geometry](#geometry) - [Mesh](#mesh) - [Material IDs](#material-ids) - [Cross
+  Sections](#cross-sections) - [Solver](#Solver) - [Angular Quadrature](#angular-quadrature)
+  - [Group Structure](#group-structure) - [Source Definition](#source-definition)
+  - [Discrete Ordinates…'
+source: doc/source/tutorials/applications/detector_response/detector_forward/detector.ipynb
+opensn_commit: 2fd4a19ceade4f8da581a5029c68f474d3333ccb
+script: detector.py.j2
+generated_from: applications/detector_response/detector_forward/detector.ipynb
+num_procs: 4
+notes: 'Generated from the OpenSn tutorial applications/detector_response/detector_forward/detector.ipynb
+  at the pinned commit. Do not edit
+
+  by hand: regenerate with `autoopensn scenarios --rebuild`, or the edit is lost.
+
+
+  Rendering this template with every parameter at its default reproduces the
+
+  tutorial''s script character for character, which the generator verifies before
+
+  writing and the test suite re-checks on every run.
+
+
+  79 literal(s) in the script were turned into parameters. 0 were left
+
+  as constants because their notation could not be reproduced exactly, which is
+
+  the conservative direction: a knob that corrupts the script is worse than a
+
+  constant.
+
+
+  A parameter whose provenance is `inferred` has a range scaled from the value the
+
+  tutorial itself uses. That is a guard against an absurd study, not a limit the
+
+  code enforces, and it is the first thing to widen when a legitimate study is
+
+  rejected.
+
+  '
+observables:
+- sweeps
+- iterations
+- wall_time
+- balance_residual
+- forward_total_flux
+- forward_total_response
+parameters:
+  src:
+    group: misc
+    type: float_list
+    default:
+    - 2.7
+    - 2.8
+    - 3.2
+    - 3.3
+    provenance: inferred
+    description: 'From the tutorial: The geometric layout of the problem is shown
+      below: <img src="images/detector_geom.png"/> --- ## **Mesh** ### Orthogonal
+      Mesh Generation To generate the mesh for this problem, we use the in-house orthogonal
+      mesh generator to create a simple Cartesian grid. Range is a guard scaled from
+      the tutorial''s own value, not a code limit; widen it by hand if a study needs
+      more.'
+    minimum: 0
+    maximum: 10000.0
+    length: 4
+  d_src:
+    group: misc
+    type: int_list
+    default:
+    - 2
+    - 4
+    - 2
+    provenance: inferred
+    description: Script variable d_src. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10000.0
+    length: 3
+  det:
+    group: misc
+    type: float_list
+    default:
+    - 13.0
+    - 16.73
+    - 16.8
+    - 19.2
+    - 19.27
+    - 23.0
+    provenance: inferred
+    description: 'From the tutorial: To run this notebook in parallel (for example,
+      using 4 processes), simply type: `mpiexec -n 4 jupyter nbconvert --to python
+      --execute detector.ipynb`. Range is a guard scaled from the tutorial''s own
+      value, not a code limit; widen it by hand if a study needs more.'
+    minimum: 0
+    maximum: 100000.0
+    length: 6
+  d_det:
+    group: misc
+    type: int_list
+    default:
+    - 6
+    - 2
+    - 4
+    - 2
+    - 6
+    provenance: inferred
+    description: Script variable d_det. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10000.0
+    length: 5
+  ref:
+    group: misc
+    type: int
+    default: 10
+    provenance: inferred
+    description: Script variable ref. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  xs_dir:
+    group: materials
+    type: str
+    default: WIMS69
+    provenance: inferred
+    description: Script variable xs_dir. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+  xs_map_block_ids:
+    group: materials
+    type: int_list
+    default:
+    - 0
+    provenance: inferred
+    description: Entry 'ids' of the xs_map block. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 1000
+    length: 1
+  xs_map_block_ids_2:
+    group: materials
+    type: int_list
+    default:
+    - 1
+    provenance: inferred
+    description: Entry '2' of the xs_map block. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10000.0
+    length: 1
+  xs_map_block_ids_3:
+    group: materials
+    type: int_list
+    default:
+    - 2
+    provenance: inferred
+    description: Entry '3' of the xs_map block. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10000.0
+    length: 1
+  xs_map_block_ids_4:
+    group: materials
+    type: int_list
+    default:
+    - 3
+    provenance: inferred
+    description: Entry '4' of the xs_map block. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10000.0
+    length: 1
+  xs_map_block_ids_5:
+    group: materials
+    type: int_list
+    default:
+    - 4
+    provenance: inferred
+    description: Entry '5' of the xs_map block. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10000.0
+    length: 1
+  n_polar:
+    group: quadrature
+    type: int
+    default: 512
+    provenance: opensn
+    description: Keyword argument n_polar of GLProductQuadrature1DSlab. Range from
+      OpenSn itself (polar ordinates; must be even).
+    minimum: 2
+    maximum: 1024
+  scattering_order:
+    group: quadrature
+    type: int
+    default: 0
+    provenance: opensn
+    description: 'From the tutorial: In this case we will use 512 polar angles creating
+      a 1D angular quadrature in $\mu$ with a scattering order of 0. Range from OpenSn
+      itself (moment order).'
+    minimum: 0
+    maximum: 8
+  num_groups:
+    group: problem
+    type: int
+    default: 69
+    provenance: opensn
+    description: Script variable num_groups. Range from OpenSn itself (energy group
+      count).
+    minimum: 1
+    maximum: 10000
+  inner_linear_method:
+    group: solver
+    type: str
+    default: petsc_gmres
+    provenance: opensn
+    description: Entry 'inner_linear_method' of the groupset block. Range from OpenSn
+      itself (allowable list from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    choices:
+    - classic_richardson
+    - petsc_richardson
+    - petsc_gmres
+    - petsc_bicgstab
+  l_abs_tol:
+    group: solver
+    type: float
+    default: 1.0e-09
+    provenance: opensn
+    description: Entry 'l_abs_tol' of the groupset block. Range from OpenSn itself
+      (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1.0e-18
+    maximum: 0.01
+  l_max_its:
+    group: solver
+    type: int
+    default: 500
+    provenance: opensn
+    description: Entry 'l_max_its' of the groupset block. Range from OpenSn itself
+      (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1
+    maximum: 100000
+  gmres_restart_interval:
+    group: solver
+    type: int
+    default: 100
+    provenance: opensn
+    description: Entry 'gmres_restart_interval' of the groupset block. Range from
+      OpenSn itself (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1
+    maximum: 1000
+  volumetric_source_block_ids:
+    group: source
+    type: int_list
+    default:
+    - 4
+    provenance: inferred
+    description: Keyword argument ids of VolumetricSource. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 10000.0
+    length: 1
+  zmin_name:
+    group: mesh
+    type: str
+    default: zmin
+    provenance: inferred
+    description: Entry 'zmin_name' of the zmin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  zmin_type:
+    group: mesh
+    type: str
+    default: vacuum
+    provenance: inferred
+    description: Entry 'zmin_type' of the zmin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  zmax_name:
+    group: mesh
+    type: str
+    default: zmax
+    provenance: inferred
+    description: Entry 'zmax_name' of the zmax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  zmax_type:
+    group: mesh
+    type: str
+    default: vacuum
+    provenance: inferred
+    description: Entry 'zmax_type' of the zmax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  save_angular_flux:
+    group: misc
+    type: bool
+    default: true
+    provenance: inferred
+    description: Script variable save_angular_flux. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  only_scalar_flux:
+    group: misc
+    type: bool
+    default: false
+    provenance: inferred
+    description: Keyword argument only_scalar_flux of GetScalarFluxFieldFunction.
+      Range is a guard scaled from the tutorial's own value, not a code limit; widen
+      it by hand if a study needs more.
+  drawstyle:
+    group: misc
+    type: str
+    default: steps
+    provenance: inferred
+    description: Keyword argument drawstyle of loglog. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  fontsize:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument fontsize of set_xlabel. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 100000.0
+  set_ylabel_fontsize:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument set_ylabel_fontsize of set_ylabel. Range is a guard
+      scaled from the tutorial's own value, not a code limit; widen it by hand if
+      a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  set_title_fontsize:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument set_title_fontsize of set_title. Range is a guard
+      scaled from the tutorial's own value, not a code limit; widen it by hand if
+      a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  axis:
+    group: misc
+    type: str
+    default: both
+    provenance: inferred
+    description: Keyword argument axis of tick_params. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  which:
+    group: misc
+    type: str
+    default: major
+    provenance: inferred
+    description: Keyword argument which of tick_params. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  labelsize:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument labelsize of tick_params. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 100000.0
+  loglog_drawstyle:
+    group: misc
+    type: str
+    default: steps
+    provenance: inferred
+    description: Keyword argument loglog_drawstyle of loglog. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  set_xlabel_fontsize:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument set_xlabel_fontsize of set_xlabel. Range is a guard
+      scaled from the tutorial's own value, not a code limit; widen it by hand if
+      a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  set_ylabel_fontsize_2:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 2 of set_ylabel. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  set_title_fontsize_2:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 2 of set_title. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  tick_params_axis:
+    group: misc
+    type: str
+    default: both
+    provenance: inferred
+    description: Keyword argument tick_params_axis of tick_params. Range is a guard
+      scaled from the tutorial's own value, not a code limit; widen it by hand if
+      a study needs more.
+  tick_params_which:
+    group: misc
+    type: str
+    default: major
+    provenance: inferred
+    description: Keyword argument tick_params_which of tick_params. Range is a guard
+      scaled from the tutorial's own value, not a code limit; widen it by hand if
+      a study needs more.
+  tick_params_labelsize:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument tick_params_labelsize of tick_params. Range is a
+      guard scaled from the tutorial's own value, not a code limit; widen it by hand
+      if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  loglog_drawstyle_2:
+    group: misc
+    type: str
+    default: steps
+    provenance: inferred
+    description: Keyword argument loglog_drawstyle_2 of loglog. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  set_xlabel_fontsize_2:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 2 of set_xlabel. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  set_ylabel_fontsize_3:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 3 of set_ylabel. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  set_title_fontsize_3:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 3 of set_title. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  tick_params_axis_2:
+    group: misc
+    type: str
+    default: both
+    provenance: inferred
+    description: Keyword argument 2 of tick_params. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  tick_params_which_2:
+    group: misc
+    type: str
+    default: major
+    provenance: inferred
+    description: Keyword argument 2 of tick_params. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  tick_params_labelsize_2:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 2 of tick_params. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  loglog_drawstyle_3:
+    group: misc
+    type: str
+    default: steps
+    provenance: inferred
+    description: Keyword argument loglog_drawstyle_3 of loglog. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  set_xlabel_fontsize_3:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 3 of set_xlabel. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  set_ylabel_fontsize_4:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 4 of set_ylabel. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  set_title_fontsize_4:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 4 of set_title. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  tick_params_axis_3:
+    group: misc
+    type: str
+    default: both
+    provenance: inferred
+    description: Keyword argument 3 of tick_params. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  tick_params_which_3:
+    group: misc
+    type: str
+    default: major
+    provenance: inferred
+    description: Keyword argument 3 of tick_params. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  tick_params_labelsize_3:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 3 of tick_params. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  newline:
+    group: misc
+    type: str
+    default: ''
+    provenance: inferred
+    description: Keyword argument newline of open. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  label:
+    group: misc
+    type: str
+    default: 'Group 3: [1.353,2.231] MeV'
+    provenance: inferred
+    description: Keyword argument label of semilogy. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  semilogy_label:
+    group: misc
+    type: str
+    default: 'Group 52: [2.2E-07, 2.5E-07] MeV'
+    provenance: inferred
+    description: Keyword argument semilogy_label of semilogy. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  loglog_drawstyle_4:
+    group: misc
+    type: str
+    default: steps
+    provenance: inferred
+    description: Keyword argument loglog_drawstyle_4 of loglog. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  loglog_label:
+    group: misc
+    type: str
+    default: ZMin
+    provenance: inferred
+    description: Keyword argument loglog_label of loglog. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  loglog_drawstyle_5:
+    group: misc
+    type: str
+    default: steps
+    provenance: inferred
+    description: Keyword argument loglog_drawstyle_5 of loglog. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  loglog_label_2:
+    group: misc
+    type: str
+    default: ZMax
+    provenance: inferred
+    description: Keyword argument loglog_label_2 of loglog. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  set_xlabel_fontsize_4:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 4 of set_xlabel. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  set_ylabel_fontsize_5:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 5 of set_ylabel. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  set_title_fontsize_5:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 5 of set_title. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  tick_params_axis_4:
+    group: misc
+    type: str
+    default: both
+    provenance: inferred
+    description: Keyword argument 4 of tick_params. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  tick_params_which_4:
+    group: misc
+    type: str
+    default: major
+    provenance: inferred
+    description: Keyword argument 4 of tick_params. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  tick_params_labelsize_4:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 4 of tick_params. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  legend_fontsize:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument legend_fontsize of legend. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 100000.0
+  loglog_drawstyle_6:
+    group: misc
+    type: str
+    default: steps
+    provenance: inferred
+    description: Keyword argument loglog_drawstyle_6 of loglog. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  loglog_label_3:
+    group: misc
+    type: str
+    default: ZMin
+    provenance: inferred
+    description: Keyword argument loglog_label_3 of loglog. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  loglog_drawstyle_7:
+    group: misc
+    type: str
+    default: steps
+    provenance: inferred
+    description: Keyword argument loglog_drawstyle_7 of loglog. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  loglog_label_4:
+    group: misc
+    type: str
+    default: ZMax
+    provenance: inferred
+    description: Keyword argument loglog_label_4 of loglog. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  set_xlabel_fontsize_5:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 5 of set_xlabel. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  set_ylabel_fontsize_6:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 6 of set_ylabel. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  set_title_fontsize_6:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 6 of set_title. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  tick_params_axis_5:
+    group: misc
+    type: str
+    default: both
+    provenance: inferred
+    description: Keyword argument 5 of tick_params. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  tick_params_which_5:
+    group: misc
+    type: str
+    default: major
+    provenance: inferred
+    description: Keyword argument 5 of tick_params. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  tick_params_labelsize_5:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument 5 of tick_params. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  legend_fontsize_2:
+    group: misc
+    type: int
+    default: 20
+    provenance: inferred
+    description: Keyword argument legend_fontsize_2 of legend. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 100000.0
+  compute_balance:
+    group: misc
+    type: bool
+    default: true
+    provenance: inferred
+    description: Keyword argument compute_balance of SteadyStateSourceSolver. Range
+      is a guard scaled from the tutorial's own value, not a code limit; widen it
+      by hand if a study needs more.
+gold:
+  case: detector.py
+  tests_json: doc/source/tutorials/applications/detector_response/detector_forward/tests.json
+  keys:
+    'Forward Total Flux :': forward_total_flux
+    'Forward Total Response :': forward_total_response
+  values:
+    'Forward Total Flux :': 2.896951
+    'Forward Total Response :': 0.123716
+  tolerances:
+    'Forward Total Flux :':
+      abs_tol: 1.0e-06
+      rel_tol: 0.0
+    'Forward Total Response :':
+      abs_tol: 1.0e-06
+      rel_tol: 0.0

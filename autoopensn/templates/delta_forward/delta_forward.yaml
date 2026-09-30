@@ -1,0 +1,369 @@
+name: delta_forward
+description: 'Delta-Forward Scattering and Galerkin Quadrature Methods. This tutorial
+  introduces the **delta-forward scattering kernel** — the limiting case of forward-peaked
+  scattering where all particles scatter exactly in their incident direction — and
+  uses it to compare the **standard**, **Galerkin One**, and **Galerkin Three** operator
+  construction methods in 3D. The delta-forward kernel is defined by a Dirac delta
+  in the scattering angle cosine: $$ f(\mu_0) = \delta(\mu_0 - 1) $$ Its Legendre
+  moments are all identically one: $$ f_\ell = P_\ell(1) = 1 \qquad \text{for all
+  } \ell $$ so the scattering cross-section moments are $\sigma_{s,\ell} = \sigma_s$
+  for…'
+source: doc/source/tutorials/numerical_methods/angular_discretization/delta_forward.ipynb
+opensn_commit: 2fd4a19ceade4f8da581a5029c68f474d3333ccb
+script: delta_forward.py.j2
+generated_from: numerical_methods/angular_discretization/delta_forward.ipynb
+num_procs: 1
+notes: 'Generated from the OpenSn tutorial numerical_methods/angular_discretization/delta_forward.ipynb
+  at the pinned commit. Do not edit
+
+  by hand: regenerate with `autoopensn scenarios --rebuild`, or the edit is lost.
+
+
+  Rendering this template with every parameter at its default reproduces the
+
+  tutorial''s script character for character, which the generator verifies before
+
+  writing and the test suite re-checks on every run.
+
+
+  34 literal(s) in the script were turned into parameters. 0 were left
+
+  as constants because their notation could not be reproduced exactly, which is
+
+  the conservative direction: a knob that corrupts the script is worse than a
+
+  constant.
+
+
+  A parameter whose provenance is `inferred` has a range scaled from the value the
+
+  tutorial itself uses. That is a guard against an absurd study, not a limit the
+
+  code enforces, and it is the first thing to widen when a legitimate study is
+
+  rejected.
+
+  '
+observables:
+- sweeps
+- iterations
+- wall_time
+- number_of_operator_methods_tested
+parameters:
+  sigma_t:
+    group: materials
+    type: float
+    default: 1.5
+    provenance: physics
+    description: 'From the tutorial: Any error in $\mathbf{DM}$ is therefore amplified
+      by the full scattering ratio $c = \sigma_s/\sigma_t = 1.0/1.5 \approx 0.67$,
+      making this a sensitive test of operator consistency. Range from the quantity
+      (a total cross section cannot be negative).'
+    minimum: 0.0
+  sigma_s:
+    group: materials
+    type: float
+    default: 1.0
+    provenance: inferred
+    description: 'From the tutorial: The delta-forward kernel is defined by a Dirac
+      delta in the scattering angle cosine: $$ f(\mu_0) = \delta(\mu_0 - 1) $$ Its
+      Legendre moments are all identically one: $$ f_\ell = P_\ell(1) = 1 \qquad \text{for
+      all } \ell $$ so the scattering cross-section moments are $\sigma_{s,\ell} =
+      \sigma_s$ for every $\ell$. Range is a guard scaled from the tutorial''s own
+      value, not a code limit; widen it by hand if a study needs more.'
+    minimum: 0
+    maximum: 10000.0
+  Q:
+    group: misc
+    type: float
+    default: 1.0
+    provenance: inferred
+    description: 'From the tutorial: The delta-forward kernel is defined by a Dirac
+      delta in the scattering angle cosine: $$ f(\mu_0) = \delta(\mu_0 - 1) $$ Its
+      Legendre moments are all identically one: $$ f_\ell = P_\ell(1) = 1 \qquad \text{for
+      all } \ell $$ so the scattering cross-section moments are $\sigma_{s,\ell} =
+      \sigma_s$ for every $\ell$. Range is a guard scaled from the tutorial''s own
+      value, not a code limit; widen it by hand if a study needs more.'
+    minimum: 0
+    maximum: 10000.0
+  L_compare:
+    group: misc
+    type: int
+    default: 7
+    provenance: inferred
+    description: Script variable L_compare. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10000.0
+  L_max:
+    group: misc
+    type: int
+    default: 7
+    provenance: inferred
+    description: Script variable L_max. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10000.0
+  L_domain:
+    group: misc
+    type: float
+    default: 10.0
+    provenance: inferred
+    description: Script variable L_domain. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  N_mesh:
+    group: mesh
+    type: int
+    default: 20
+    provenance: inferred
+    description: Script variable N_mesh. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  N_polar:
+    group: quadrature
+    type: int
+    default: 4
+    provenance: inferred
+    description: Script variable N_polar. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10000.0
+  N_azimuthal:
+    group: quadrature
+    type: int
+    default: 8
+    provenance: inferred
+    description: Script variable N_azimuthal. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10000.0
+  xs_filename:
+    group: materials
+    type: str
+    default: delta_forward.xs
+    provenance: inferred
+    description: Script variable xs_filename. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+  xs_ref_filename:
+    group: materials
+    type: str
+    default: pure_absorber.xs
+    provenance: inferred
+    description: Script variable xs_ref_filename. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  operator_method:
+    group: misc
+    type: str
+    default: standard
+    provenance: inferred
+    description: 'From the tutorial: We compare three operator methods: `standard`,
+      `galerkin_one`, and `galerkin_three` at $L = 7$ (64 moments). Range is a guard
+      scaled from the tutorial''s own value, not a code limit; widen it by hand if
+      a study needs more.'
+  glcproduct_quadrature3_dxyz_operator_method:
+    group: quadrature
+    type: str
+    default: galerkin_one
+    provenance: inferred
+    description: Keyword argument method of GLCProductQuadrature3DXYZ. Range is a
+      guard scaled from the tutorial's own value, not a code limit; widen it by hand
+      if a study needs more.
+  glcproduct_quadrature3_dxyz_operator_method_2:
+    group: quadrature
+    type: str
+    default: galerkin_three
+    provenance: inferred
+    description: Keyword argument 2 of GLCProductQuadrature3DXYZ. Range is a guard
+      scaled from the tutorial's own value, not a code limit; widen it by hand if
+      a study needs more.
+  volumetric_source_block_ids:
+    group: source
+    type: int_list
+    default:
+    - 0
+    provenance: inferred
+    description: Keyword argument ids of VolumetricSource. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 1000
+    length: 1
+  num_groups:
+    group: problem
+    type: int
+    default: 1
+    provenance: opensn
+    description: Keyword argument num_groups of DiscreteOrdinatesProblem. Range from
+      OpenSn itself (energy group count).
+    minimum: 1
+    maximum: 10000
+  inner_linear_method:
+    group: solver
+    type: str
+    default: petsc_gmres
+    provenance: opensn
+    description: Entry 'inner_linear_method' of the groupset block. Range from OpenSn
+      itself (allowable list from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    choices:
+    - classic_richardson
+    - petsc_richardson
+    - petsc_gmres
+    - petsc_bicgstab
+  l_abs_tol:
+    group: solver
+    type: float
+    default: 1.0e-08
+    provenance: opensn
+    description: Entry 'l_abs_tol' of the groupset block. Range from OpenSn itself
+      (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1.0e-18
+    maximum: 0.01
+  l_max_its:
+    group: solver
+    type: int
+    default: 100
+    provenance: opensn
+    description: Entry 'l_max_its' of the groupset block. Range from OpenSn itself
+      (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1
+    maximum: 100000
+  gmres_restart_interval:
+    group: solver
+    type: int
+    default: 100
+    provenance: opensn
+    description: Entry 'gmres_restart_interval' of the groupset block. Range from
+      OpenSn itself (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1
+    maximum: 1000
+  xs_map_block_ids:
+    group: materials
+    type: int_list
+    default:
+    - 0
+    provenance: inferred
+    description: Entry 'ids' of the xs_map block. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 1000
+    length: 1
+  xmin_name:
+    group: mesh
+    type: str
+    default: xmin
+    provenance: inferred
+    description: Entry 'xmin_name' of the xmin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  xmin_type:
+    group: mesh
+    type: str
+    default: isotropic
+    provenance: inferred
+    description: Entry 'xmin_type' of the xmin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  xmax_name:
+    group: mesh
+    type: str
+    default: xmax
+    provenance: inferred
+    description: Entry 'xmax_name' of the xmax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  xmax_type:
+    group: mesh
+    type: str
+    default: isotropic
+    provenance: inferred
+    description: Entry 'xmax_type' of the xmax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  ymin_name:
+    group: mesh
+    type: str
+    default: ymin
+    provenance: inferred
+    description: Entry 'ymin_name' of the ymin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  ymin_type:
+    group: mesh
+    type: str
+    default: isotropic
+    provenance: inferred
+    description: Entry 'ymin_type' of the ymin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  ymax_name:
+    group: mesh
+    type: str
+    default: ymax
+    provenance: inferred
+    description: Entry 'ymax_name' of the ymax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  ymax_type:
+    group: mesh
+    type: str
+    default: isotropic
+    provenance: inferred
+    description: Entry 'ymax_type' of the ymax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  zmin_name:
+    group: mesh
+    type: str
+    default: zmin
+    provenance: inferred
+    description: Entry 'zmin_name' of the zmin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  zmin_type:
+    group: mesh
+    type: str
+    default: isotropic
+    provenance: inferred
+    description: Entry 'zmin_type' of the zmin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  zmax_name:
+    group: mesh
+    type: str
+    default: zmax
+    provenance: inferred
+    description: Entry 'zmax_name' of the zmax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  zmax_type:
+    group: mesh
+    type: str
+    default: isotropic
+    provenance: inferred
+    description: Entry 'zmax_type' of the zmax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  scattering_order:
+    group: quadrature
+    type: int
+    default: 0
+    provenance: opensn
+    description: 'From the tutorial: **Galerkin One (auto $L=7$)** additionally uses
+      the maximum feasible scattering order — auto-selected so $(L+1)^2 = N_{dir}$
+      — for the best overall agreement. Range from OpenSn itself (moment order).'
+    minimum: 0
+    maximum: 8
+gold:
+  case: delta_forward.py
+  tests_json: doc/source/tutorials/numerical_methods/angular_discretization/tests.json
+  keys:
+    number of operator methods tested =: number_of_operator_methods_tested
+  values:
+    number of operator methods tested =: 3.0
+  tolerances:
+    number of operator methods tested =:
+      abs_tol: 1.0e-08
+      rel_tol: 0.0

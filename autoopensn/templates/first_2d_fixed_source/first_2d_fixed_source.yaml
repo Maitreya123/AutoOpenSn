@@ -1,0 +1,206 @@
+name: first_2d_fixed_source
+description: Your First 2D Fixed-Source Calculation. This notebook extends the one-dimensional
+  slab calculation to a square Cartesian domain. You will create a two-dimensional
+  mesh, name its orthogonal boundaries, choose a quadrature appropriate to 2D Cartesian
+  transport, solve a one-group fixed-source problem, and verify the scalar flux. **Prerequisite:**
+  [Your First 1D Fixed-Source Calculation](first_1d_fixed_source.ipynb). Supplying
+  two node sets creates a Cartesian mesh in the $x$-$y$ plane. `SetOrthogonalBoundaries`
+  assigns the names `xmin`, `xmax`, `ymin`, and `ymax`; the problem uses vacuum conditions
+  on all four by default. As in the 1D…
+source: doc/source/tutorials/foundations/first_2d_fixed_source.ipynb
+opensn_commit: 2fd4a19ceade4f8da581a5029c68f474d3333ccb
+script: first_2d_fixed_source.py.j2
+generated_from: foundations/first_2d_fixed_source.ipynb
+num_procs: 1
+notes: 'Generated from the OpenSn tutorial foundations/first_2d_fixed_source.ipynb
+  at the pinned commit. Do not edit
+
+  by hand: regenerate with `autoopensn scenarios --rebuild`, or the edit is lost.
+
+
+  Rendering this template with every parameter at its default reproduces the
+
+  tutorial''s script character for character, which the generator verifies before
+
+  writing and the test suite re-checks on every run.
+
+
+  15 literal(s) in the script were turned into parameters. 0 were left
+
+  as constants because their notation could not be reproduced exactly, which is
+
+  the conservative direction: a knob that corrupts the script is worse than a
+
+  constant.
+
+
+  A parameter whose provenance is `inferred` has a range scaled from the value the
+
+  tutorial itself uses. That is a guard against an absurd study, not a limit the
+
+  code enforces, and it is the first thing to widen when a legitimate study is
+
+  rejected.
+
+  '
+observables:
+- sweeps
+- iterations
+- wall_time
+- foundation_2d_max_flux
+parameters:
+  num_cells:
+    group: mesh
+    type: int
+    default: 16
+    provenance: inferred
+    description: Script variable num_cells. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  length:
+    group: mesh
+    type: float
+    default: 4.0
+    provenance: inferred
+    description: Script variable length. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10000.0
+  sigma_t:
+    group: materials
+    type: float
+    default: 1.0
+    provenance: physics
+    description: Keyword argument sigma_t of CreateSimpleOneGroup. Range from the
+      quantity (a total cross section cannot be negative).
+    minimum: 0.0
+  c:
+    group: materials
+    type: float
+    default: 0.0
+    provenance: physics
+    description: 'From the tutorial: **Prerequisite:** [Your First 1D Fixed-Source
+      Calculation](first_1d_fixed_source.ipynb). Range from the quantity (scattering
+      ratio; above 1 the medium multiplies).'
+    minimum: 0.0
+    maximum: 1.0
+  volumetric_source_block_ids:
+    group: source
+    type: int_list
+    default:
+    - 0
+    provenance: inferred
+    description: Keyword argument ids of VolumetricSource. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 1000
+    length: 1
+  group_strength:
+    group: source
+    type: float_list
+    default:
+    - 1.0
+    provenance: physics
+    description: Keyword argument group_strength of VolumetricSource. Range from the
+      quantity (a source strength cannot be negative).
+    minimum: 0.0
+    length: 1
+  n_polar:
+    group: quadrature
+    type: int
+    default: 2
+    provenance: opensn
+    description: Keyword argument n_polar of GLCProductQuadrature2DXY. Range from
+      OpenSn itself (polar ordinates; must be even).
+    minimum: 2
+    maximum: 1024
+  n_azimuthal:
+    group: quadrature
+    type: int
+    default: 8
+    provenance: opensn
+    description: Keyword argument n_azimuthal of GLCProductQuadrature2DXY. Range from
+      OpenSn itself (azimuthal ordinates; must be even).
+    minimum: 2
+    maximum: 1024
+  scattering_order:
+    group: quadrature
+    type: int
+    default: 0
+    provenance: opensn
+    description: Keyword argument scattering_order of GLCProductQuadrature2DXY. Range
+      from OpenSn itself (moment order).
+    minimum: 0
+    maximum: 8
+  num_groups:
+    group: problem
+    type: int
+    default: 1
+    provenance: opensn
+    description: Keyword argument num_groups of DiscreteOrdinatesProblem. Range from
+      OpenSn itself (energy group count).
+    minimum: 1
+    maximum: 10000
+  inner_linear_method:
+    group: solver
+    type: str
+    default: petsc_gmres
+    provenance: opensn
+    description: Entry 'inner_linear_method' of the groupset block. Range from OpenSn
+      itself (allowable list from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    choices:
+    - classic_richardson
+    - petsc_richardson
+    - petsc_gmres
+    - petsc_bicgstab
+  l_abs_tol:
+    group: solver
+    type: float
+    default: 1.0e-10
+    provenance: opensn
+    description: Entry 'l_abs_tol' of the groupset block. Range from OpenSn itself
+      (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1.0e-18
+    maximum: 0.01
+  l_max_its:
+    group: solver
+    type: int
+    default: 100
+    provenance: opensn
+    description: Entry 'l_max_its' of the groupset block. Range from OpenSn itself
+      (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1
+    maximum: 100000
+  gmres_restart_interval:
+    group: solver
+    type: int
+    default: 30
+    provenance: opensn
+    description: Entry 'gmres_restart_interval' of the groupset block. Range from
+      OpenSn itself (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1
+    maximum: 1000
+  xs_map_block_ids:
+    group: materials
+    type: int_list
+    default:
+    - 0
+    provenance: inferred
+    description: Entry 'ids' of the xs_map block. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 1000
+    length: 1
+gold:
+  case: first_2d_fixed_source.py
+  tests_json: doc/source/tutorials/foundations/tests.json
+  keys:
+    FOUNDATION_2D_MAX_FLUX=: foundation_2d_max_flux
+  values:
+    FOUNDATION_2D_MAX_FLUX=: 0.930041429
+  tolerances:
+    FOUNDATION_2D_MAX_FLUX=:
+      abs_tol: 1.0e-08
+      rel_tol: 0.0

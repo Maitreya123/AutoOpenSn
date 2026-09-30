@@ -1,0 +1,39 @@
+import os
+import numpy as np
+from mpi4py import MPI
+
+
+from pyopensn.xs import MultiGroupXS
+from pyopensn.context import UseColor, Finalize
+
+UseColor(False)
+
+# load cross sections
+xs_mat = MultiGroupXS()
+xs_mat.CreateSimpleOneGroup(sigma_t={{ sigma_t | lit("plain") }}, c={{ c | lit("plain") }})
+
+# Retrieve properties
+ng = xs_mat.num_groups
+sca_order = xs_mat.scattering_order
+print("num_groups       = ", ng)
+print("scattering_order = ", sca_order)
+
+# note cross sections are read-only objects of type <memoryview>
+siga = xs_mat.sigma_a
+print("type = ", type(siga))
+# retrieve a numpy array
+siga = np.array(xs_mat.sigma_a)
+print("siga = ", siga)
+# retrieve as list
+sigt = list(xs_mat.sigma_t)
+print("sigt = ", sigt)
+
+from IPython import get_ipython
+
+def finalize_env():
+    Finalize()
+    MPI.Finalize()
+
+ipython_instance = get_ipython()
+if ipython_instance is not None:
+    ipython_instance.events.register("post_execute", finalize_env)

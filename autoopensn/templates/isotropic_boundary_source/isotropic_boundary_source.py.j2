@@ -1,0 +1,76 @@
+from mpi4py import MPI
+from pyopensn.aquad import GLCProductQuadrature2DXY
+from pyopensn.context import Finalize
+from pyopensn.mesh import OrthogonalMeshGenerator
+from pyopensn.solver import DiscreteOrdinatesProblem, SteadyStateSourceSolver
+from pyopensn.xs import MultiGroupXS
+
+rank = MPI.COMM_WORLD.rank
+num_cells_x = {{ num_cells_x | lit("int") }}
+num_cells_y = {{ num_cells_y | lit("int") }}
+x_nodes = [i / num_cells_x for i in range(num_cells_x + 1)]
+y_nodes = [i / num_cells_y for i in range(num_cells_y + 1)]
+mesh = OrthogonalMeshGenerator(node_sets=[x_nodes, y_nodes]).Execute()
+mesh.SetUniformBlockID(0)
+
+xs = MultiGroupXS()
+xs.CreateSimpleOneGroup(sigma_t={{ sigma_t | lit("plain") }}, c={{ c | lit("sci") }})
+quadrature = GLCProductQuadrature2DXY(
+    n_polar={{ n_polar | lit("int") }}, n_azimuthal={{ n_azimuthal | lit("int") }}, scattering_order={{ scattering_order | lit("int") }}
+)
+groupset = {
+    "groups_from_to": (0, 0),
+    "angular_quadrature": quadrature,
+    "inner_linear_method": {{ inner_linear_method | lit("dq") }},
+    "l_abs_tol": {{ l_abs_tol | lit("sci") }},
+    "l_max_its": {{ l_max_its | lit("int") }},
+}
+
+incoming_group_strength = {{ incoming_group_strength | lit("plain") }}
+boundary_conditions = [
+    {
+        "name": {{ xmin_name | lit("dq") }},
+        "type": {{ xmin_type | lit("dq") }},
+        "group_strength": [incoming_group_strength],
+    },
+    {"name": {{ xmax_name | lit("dq") }}, "type": {{ xmax_type | lit("dq") }}},
+    {"name": {{ ymin_name | lit("dq") }}, "type": {{ ymin_type | lit("dq") }}},
+    {"name": {{ ymax_name | lit("dq") }}, "type": {{ ymax_type | lit("dq") }}},
+]
+
+problem = DiscreteOrdinatesProblem(
+    mesh=mesh,
+    num_groups={{ num_groups | lit("int") }},
+    groupsets=[groupset],
+    xs_map=[{"block_ids": {{ xs_map_block_ids | lit("list:int") }}, "xs": xs}],
+    boundary_conditions=boundary_conditions,
+    options={"save_angular_flux": {{ save_angular_flux | lit("bool") }}},
+)
+solver = SteadyStateSourceSolver(problem=problem, compute_balance={{ compute_balance | lit("bool") }})
+solver.Initialize()
+solver.Execute()
+
+leakage = problem.ComputeLeakage(["xmax", "ymin", "ymax"])
+transmitted_current = float(leakage["xmax"][0])
+lower_leakage = float(leakage["ymin"][0])
+upper_leakage = float(leakage["ymax"][0])
+symmetry_error = abs(lower_leakage - upper_leakage)
+
+balance = solver.ComputeBalanceTable()
+source_rate = balance["production_rate"] + balance["inflow_rate"]
+loss_rate = balance["absorption_rate"] + balance["outflow_rate"]
+balance_residual = abs(source_rate - loss_rate) / max(abs(source_rate), 1.0e-16)
+if rank == 0:
+    print(f"Transmitted current={transmitted_current:.6e}")
+    print(f"Lower leakage={lower_leakage:.6e}")
+    print(f"Upper leakage={upper_leakage:.6e}")
+    print(f"Side-leakage symmetry error={symmetry_error:.6e}")
+    print(f"Balance residual={balance_residual:.6e}")
+assert transmitted_current > 0.0
+assert symmetry_error < 1.0e-10
+assert balance_residual < 1.0e-8
+if "opensn_console" not in globals():
+    from IPython import get_ipython
+    if get_ipython() is not None:
+        Finalize()
+        MPI.Finalize()

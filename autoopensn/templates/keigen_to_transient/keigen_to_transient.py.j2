@@ -1,0 +1,190 @@
+import math
+import os
+import sys
+import ctypes
+from pathlib import Path
+from mpi4py import MPI
+
+size = MPI.COMM_WORLD.size
+rank = MPI.COMM_WORLD.rank
+
+# In notebooks, __file__ is typically undefined. Prefer cwd as the tutorial dir.
+tutorial_dir = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
+
+# If launched from repo root (or another directory), recover the tutorial directory.
+if not (tutorial_dir / "xs1g_prompt_crit.cxs").exists():
+    candidate = Path.cwd() / "doc/source/tutorials/problems/transient"
+    if candidate.exists():
+        tutorial_dir = candidate
+
+repo_root = None
+build_dir = None
+
+# Prefer normal environment import (e.g., site-packages), then fall back to local build.
+try:
+    import pyopensn
+except ImportError:
+    # Find repo root robustly by walking upward.
+    for p in [tutorial_dir, *tutorial_dir.parents]:
+        has_src_pyopensn = (p / "pyopensn").exists() and (p / "CMakeLists.txt").exists()
+        has_bld_pyopensn = (p / "build" / "pyopensn").exists()
+        if has_bld_pyopensn or has_src_pyopensn:
+            repo_root = p
+            break
+    if repo_root is None:
+        repo_root = tutorial_dir
+
+    build_dir = repo_root / "build"
+
+    if (build_dir / "pyopensn").exists():
+        # Avoid stale module path order issues.
+        sys.path = [p for p in sys.path if p not in (str(build_dir), str(repo_root))]
+        sys.path.insert(0, str(build_dir))
+
+    # Preload local libopensn if available (Linux/macOS).
+    lib_candidates = (
+        build_dir / "libopensn.so",
+        build_dir / "libopensn.dylib",
+        build_dir / "lib" / "libopensn.so",
+        build_dir / "lib" / "libopensn.dylib",
+    )
+    for lib_path in lib_candidates:
+        if lib_path.exists():
+            ctypes.CDLL(str(lib_path), mode=ctypes.RTLD_GLOBAL)
+            break
+
+    import pyopensn
+
+    # If we used fallback import, ensure we loaded from local build.
+    pyopensn_path = Path(pyopensn.__file__).resolve()
+    expected_parent = (build_dir / "pyopensn").resolve()
+    if expected_parent.exists() and expected_parent not in pyopensn_path.parents:
+        raise RuntimeError(
+            f"Imported pyopensn from unexpected location: {pyopensn_path}. "
+            f"Expected under {expected_parent}"
+        )
+
+from pyopensn.mesh import OrthogonalMeshGenerator
+from pyopensn.xs import MultiGroupXS
+from pyopensn.aquad import GLCProductQuadrature3DXYZ
+from pyopensn.solver import (DiscreteOrdinatesProblem,
+    PowerIterationKEigenSolver,
+    TransientSolver,
+)
+
+num_cells_1d = {{ num_cells_1d | lit("int") }}
+L = {{ L | lit("plain") }}
+dx = L / num_cells_1d
+nodes = [i * dx for i in range(num_cells_1d + 1)]
+
+meshgen = OrthogonalMeshGenerator(node_sets=[nodes, nodes, nodes])
+grid = meshgen.Execute()
+
+grid.SetUniformBlockID(0)
+
+xs_crit = MultiGroupXS()
+xs_crit.LoadFromOpenSn(str(tutorial_dir / "xs1g_prompt_crit.cxs"))
+
+xs_super = MultiGroupXS()
+xs_super.LoadFromOpenSn(str(tutorial_dir / "xs1g_prompt_super.cxs"))
+
+pquad = GLCProductQuadrature3DXYZ(n_polar={{ n_polar | lit("int") }}, n_azimuthal={{ n_azimuthal | lit("int") }}, scattering_order={{ scattering_order | lit("int") }})
+
+phys = DiscreteOrdinatesProblem(
+    mesh=grid,
+    num_groups={{ num_groups | lit("int") }},
+    groupsets=[
+        {
+            "groups_from_to": (0, 0),
+            "angular_quadrature": pquad,
+            "inner_linear_method": {{ inner_linear_method | lit("dq") }},
+            "l_abs_tol": {{ l_abs_tol | lit("sci") }},
+            "l_max_its": {{ l_max_its | lit("int") }},
+        },
+    ],
+    xs_map=[{"block_ids": {{ xs_map_block_ids | lit("list:int") }}, "xs": xs_crit}],
+    boundary_conditions=[
+        {"name": {{ xmin_name | lit("dq") }}, "type": {{ xmin_type | lit("dq") }}},
+        {"name": {{ xmax_name | lit("dq") }}, "type": {{ xmax_type | lit("dq") }}},
+        {"name": {{ ymin_name | lit("dq") }}, "type": {{ ymin_type | lit("dq") }}},
+        {"name": {{ ymax_name | lit("dq") }}, "type": {{ ymax_type | lit("dq") }}},
+        {"name": {{ zmin_name | lit("dq") }}, "type": {{ zmin_type | lit("dq") }}},
+        {"name": {{ zmax_name | lit("dq") }}, "type": {{ zmax_type | lit("dq") }}},
+    ],
+    options={
+        "save_angular_flux": {{ save_angular_flux | lit("bool") }},
+        "use_precursors": {{ use_precursors | lit("bool") }},
+        "verbose_inner_iterations": {{ verbose_inner_iterations | lit("bool") }},
+        "verbose_outer_iterations": {{ verbose_outer_iterations | lit("bool") }},
+    },
+)
+
+keigen = PowerIterationKEigenSolver(problem=phys, max_iters={{ max_iters | lit("int") }}, k_tol={{ k_tol | lit("sci") }})
+keigen.Initialize()
+keigen.Execute()
+
+phys.SetTimeDependentMode()
+transient_solver = TransientSolver(problem=phys, verbose={{ verbose | lit("bool") }}, initial_state={{ initial_state | lit("dq") }})
+transient_solver.Initialize()
+
+phys.SetXSMap(xs_map=[{"block_ids": {{ xs_map_block_ids_2 | lit("list:int") }}, "xs": xs_super}])
+
+# Baseline fission production at transient start (post-swap, t=0+)
+t0 = phys.GetTime()
+fp0 = phys.ComputeFissionProduction("new")
+if rank == 0:
+    print(f"Transient start time t0 = {t0:.6f}")
+    print(f"Initial fission production fp0 (post-swap) = {fp0:.8e}")
+
+transient_solver.SetTimeStep(1.0e-2)
+transient_solver.SetTheta(1.0)
+
+t_end = {{ t_end | lit("plain") }}
+step = {{ step | lit("int") }}
+while phys.GetTime() < t_end:
+    t_before = phys.GetTime()
+    transient_solver.Advance()
+    t_after = phys.GetTime()
+    fp = phys.ComputeFissionProduction("new")
+    if rank == 0:
+        print(
+            f"Time step = {step:03d}, "
+            f"start time = {t_before:.6f}, "
+            f"end time = {t_after:.6f}, "
+            f"fission production @end = {fp:.8e}"
+        )
+    step += 1
+
+if step == 0:
+    raise RuntimeError("No transient steps executed. Reinitialize solver state or increase t_end.")
+
+fp_end = phys.ComputeFissionProduction("new")
+t1 = phys.GetTime()
+
+sigma_t = {{ sigma_t | lit("plain") }}
+sigma_s = {{ sigma_s | lit("plain") }}
+sigma_a = sigma_t - sigma_s
+nu = {{ nu | lit("plain") }}
+sigma_f = 0.180000
+alpha = nu * sigma_f - sigma_a
+
+delta_t = t1 - t0
+ratio_analytic = math.exp(alpha * delta_t)
+ratio_numeric = fp_end / fp0 if fp0 > 0.0 else 0.0
+
+rel_err = abs(ratio_numeric - ratio_analytic) / max(abs(ratio_analytic), 1.0e-16)
+tol = {{ tol | lit("sci") }}  # matches prompt-analytic regression tolerance
+
+if rank == 0:
+    print(f"Elapsed transient time = {delta_t:.6f} s")
+    print(f"FP ratio numeric      = {ratio_numeric:.8e}")
+    print(f"FP ratio analytic     = {ratio_analytic:.8e}")
+    print(f"Relative error        = {rel_err:.3e}")
+
+assert rel_err < tol, (
+    f"FP ratio check failed: rel_err={rel_err:.3e} >= tol={tol:.3e} "
+    f"(numeric={ratio_numeric:.8e}, analytic={ratio_analytic:.8e}, delta_t={delta_t:.6e})"
+)
+
+if rank == 0:
+    print("KEIGEN_TO_TRANSIENT_OK 1")

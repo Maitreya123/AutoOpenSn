@@ -1,0 +1,49 @@
+# Milestone 1: the acceptance test for this project.
+#
+# The study behind the prompt "compare GMRES tolerances 1e-4, 1e-6, 1e-8 and
+# restart intervals 5, 20, 50 against a 1e-10 reference on the 1D transport
+# problem". Written by hand, because the stage that would generate it from that
+# sentence is still a stub; this is the shape that stage has to produce.
+#
+# Seven runs, not ten. Each sweep dimension varies alone from the baseline,
+# which is what "compare A over three values and B over three values" means.
+
+name: gmres_convergence
+template: reed_1d
+pack_commit: 2fd4a19ceade4f8da581a5029c68f474d3333ccb
+description: >-
+  Effect of the GMRES convergence tolerance and restart interval on the
+  accuracy, sweep count, and wall time of the 1D Reed problem, measured against
+  a 1e-10 reference solution.
+
+template_parameters:
+  # The study compares fluxes, so the script has to print one.
+  emit_avg_flux: true
+
+solver:
+  inner_linear_method: petsc_gmres
+  l_abs_tol: 1.0e-6
+  gmres_restart_interval: 30
+  l_max_its: 300
+
+sweep:
+  - parameter: l_abs_tol
+    values: [1.0e-4, 1.0e-6, 1.0e-8]
+  - parameter: gmres_restart_interval
+    values: [5, 20, 50]
+
+sweep_mode: one_at_a_time
+
+reference:
+  l_abs_tol: 1.0e-10
+
+observables:
+  - avg_flux
+  - sweeps
+  - iterations
+  - wall_time
+  - balance_residual
+
+num_procs: 1
+timeout_seconds: 1800.0
+retry_budget: 0

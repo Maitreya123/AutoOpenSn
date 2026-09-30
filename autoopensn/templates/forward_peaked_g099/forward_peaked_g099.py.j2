@@ -1,0 +1,155 @@
+import os
+import glob
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from mpi4py import MPI
+
+
+from pyopensn.mesh import OrthogonalMeshGenerator
+from pyopensn.xs import MultiGroupXS
+from pyopensn.aquad import GLProductQuadrature1DSlab
+from pyopensn.solver import DiscreteOrdinatesProblem, SteadyStateSourceSolver
+from pyopensn.fieldfunc import FieldFunctionInterpolationLine
+from pyopensn.math import Vector3
+from pyopensn.context import UseColor, Finalize
+
+UseColor(False)
+rank = MPI.COMM_WORLD.rank
+
+sigma_t  = {{ sigma_t | lit("plain") }}
+sigma_s  = {{ sigma_s | lit("plain") }}
+g_hg     = {{ g_hg | lit("plain") }}
+L_max    = {{ L_max | lit("int") }}
+L_slab   = {{ L_slab | lit("plain") }}
+N_cells  = {{ N_cells | lit("int") }}
+
+sigma_tr  = sigma_t - g_hg * sigma_s
+lambda_tr = 1.0 / sigma_tr
+print(f"sigma_tr   = {sigma_tr:.4f}")
+print(f"lambda_tr  = {lambda_tr:.4f} mfp")
+print(f"Slab in transport mfp: {L_slab / lambda_tr:.4f}")
+
+xs_filename = {{ xs_filename | lit("dq") }}
+with open(xs_filename, "w") as f:
+    f.write("NUM_GROUPS 1\n")
+    f.write(f"NUM_MOMENTS {L_max + 1}\n\n")
+    f.write("SIGMA_T_BEGIN\n")
+    f.write(f"0 {sigma_t}\n")
+    f.write("SIGMA_T_END\n\n")
+    f.write("TRANSFER_MOMENTS_BEGIN\n")
+    for ell in range(L_max + 1):
+        f.write(f"M_GFROM_GTO_VAL {ell} 0 0 {sigma_s * g_hg**ell:.10f}\n")
+    f.write("TRANSFER_MOMENTS_END\n")
+print(f"\nCross-section file written: {xs_filename}")
+for ell in [0, 1, 3, 7, 15, 31]:
+    print(f"  sigma_s,{ell:<2d} = {sigma_s * g_hg**ell:.6f}")
+
+dx    = L_slab / N_cells
+nodes = [i * dx for i in range(N_cells + 1)]
+meshgen = OrthogonalMeshGenerator(node_sets=[nodes])
+grid  = meshgen.Execute()
+grid.SetUniformBlockID(0)
+print(f"\nMesh: {N_cells} cells, length = {L_slab} mfp")
+
+scattering_orders = {{ scattering_orders | lit("list:int") }}
+flux_results = {}
+
+for L in scattering_orders:
+    print(f"\n=== Solving with P{L} scattering (scattering_order = {L}) ===")
+
+    pquad  = GLProductQuadrature1DSlab(n_polar={{ n_polar | lit("int") }}, scattering_order=L)
+    xs_mat = MultiGroupXS()
+    xs_mat.LoadFromOpenSn(xs_filename)
+
+    phys = DiscreteOrdinatesProblem(
+        mesh=grid,
+        num_groups={{ num_groups | lit("int") }},
+        groupsets=[{
+            "groups_from_to": (0, 0),
+            "angular_quadrature": pquad,
+            "inner_linear_method": {{ inner_linear_method | lit("dq") }},
+            "l_abs_tol": {{ l_abs_tol | lit("sci") }},
+            "l_max_its": {{ l_max_its | lit("int") }},
+            "gmres_restart_interval": {{ gmres_restart_interval | lit("int") }},
+        }],
+        xs_map=[{"block_ids": {{ xs_map_block_ids | lit("list:int") }}, "xs": xs_mat}],
+        boundary_conditions=[
+            {"name": {{ zmin_name | lit("dq") }}, "type": {{ zmin_type | lit("dq") }}, "group_strength": {{ group_strength | lit("list:plain") }}},
+        ],
+    )
+    ss_solver = SteadyStateSourceSolver(problem=phys)
+    ss_solver.Initialize()
+    ss_solver.Execute()
+
+    fflist = phys.GetScalarFluxFieldFunction(only_scalar_flux={{ only_scalar_flux | lit("bool") }})
+    cline  = FieldFunctionInterpolationLine()
+    cline.SetInitialPoint(Vector3(0.0, 0.0, 0.05))
+    cline.SetFinalPoint(Vector3(0.0, 0.0, L_slab - 0.05))
+    cline.SetNumberOfPoints(100)
+    cline.AddFieldFunction(fflist[0][0])
+    cline.Execute()
+    csv_base = f"flux_g099_P{L}"
+    cline.ExportToCSV(csv_base)
+
+    if rank == 0:
+        csv_files = glob.glob(f"{csv_base}_*.csv")
+        if csv_files:
+            data = np.genfromtxt(csv_files[0], delimiter={{ delimiter | lit("sq") }}, skip_header={{ skip_header | lit("int") }})
+            idx  = np.argsort(data[:, 2])
+            flux_results[L] = (data[idx, 2], data[idx, 3])
+            print(f"  Max flux = {data[:, 3].max():.5f}")
+        else:
+            print(f"  WARNING: CSV not found for P{L}")
+
+print(f"\nnumber of scattering orders tested = {len(scattering_orders)}")
+
+if rank == 0 and flux_results:
+    labels_m  = {0: '$P_0$', 1: '$P_1$', 7: '$P_7$', 15: '$P_{15}$', 31: '$P_{31}$'}
+    colors_m  = {0: 'tab:red', 1: 'tab:orange', 7: 'tab:blue', 15: 'tab:purple', 31: 'tab:green'}
+    ls_m      = {0: ':', 1: '-.', 7: '--', 15: '-', 31: (0, (3, 1, 1, 1))}
+
+    os.makedirs("images", exist_ok={{ exist_ok | lit("bool") }})
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    for ax, use_log in zip(axes, [False, True]):
+        for L in scattering_orders:
+            if L not in flux_results:
+                continue
+            z, phi = flux_results[L]
+            if use_log:
+                ax.semilogy(z, np.where(phi > 0, phi, np.nan),
+                            color=colors_m[L], linestyle=ls_m[L], linewidth={{ linewidth | lit("int") }}, label=labels_m[L])
+            else:
+                ax.plot(z, phi, color=colors_m[L], linestyle=ls_m[L], linewidth={{ plot_linewidth | lit("int") }}, label=labels_m[L])
+        ax.set_xlabel('Position $z$ (mfp)', fontsize={{ set_xlabel_fontsize | lit("int") }})
+        ax.set_xlim(0, L_slab)
+        ax.legend(title={{ title | lit("sq") }}, fontsize={{ legend_fontsize | lit("int") }})
+        ax.grid(True, alpha={{ alpha | lit("plain") }})
+
+    axes[0].set_ylabel(r'Scalar flux $\phi(z)$', fontsize={{ fontsize | lit("int") }})
+    axes[0].set_title(f'1D Slab: $g = {g_hg}$  (linear scale)', fontsize={{ set_title_fontsize | lit("int") }})
+    axes[0].set_ylim(bottom={{ bottom | lit("int") }})
+    axes[1].set_ylabel(r'Scalar flux $\phi(z)$ (log)', fontsize={{ set_ylabel_fontsize | lit("int") }})
+    axes[1].set_title(f'1D Slab: $g = {g_hg}$  (log scale)', fontsize={{ set_title_fontsize_2 | lit("int") }})
+
+    plt.tight_layout()
+    plt.savefig("images/forward_peaked_flux_g099.png", dpi={{ dpi | lit("int") }}, bbox_inches={{ bbox_inches | lit("sq") }})
+    plt.close()
+
+if rank == 0:
+    if os.path.exists(xs_filename):
+        os.remove(xs_filename)
+    for L in scattering_orders:
+        for f in glob.glob(f"flux_g099_P{L}_*.csv"):
+            os.remove(f)
+
+from IPython import get_ipython
+
+def finalize_env():
+    Finalize()
+    MPI.Finalize()
+
+ipython_instance = get_ipython()
+if ipython_instance is not None:
+    ipython_instance.events.register("post_execute", finalize_env)

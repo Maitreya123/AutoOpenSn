@@ -1,0 +1,212 @@
+import os
+import numpy as np
+from mpi4py import MPI
+
+
+from pyopensn.mesh import OrthogonalMeshGenerator
+from pyopensn.xs import MultiGroupXS
+from pyopensn.source import VolumetricSource
+from pyopensn.aquad import GLCProductQuadrature3DXYZ
+from pyopensn.solver import DiscreteOrdinatesProblem, SteadyStateSourceSolver
+from pyopensn.fieldfunc import FieldFunctionInterpolationVolume
+from pyopensn.logvol import RPPLogicalVolume
+from pyopensn.context import UseColor, Finalize
+
+UseColor(False)
+rank = MPI.COMM_WORLD.rank
+
+sigma_t     = {{ sigma_t | lit("plain") }}
+sigma_s     = {{ sigma_s | lit("plain") }}
+sigma_a     = sigma_t - sigma_s   # = 0.5
+Q           = {{ Q | lit("plain") }}
+analytical_phi = Q / sigma_a      # = 2.0
+bsrc        = analytical_phi      # incoming isotropic flux on every face
+
+L_compare   = {{ L_compare | lit("int") }}    # scattering order for standard and Galerkin Three
+L_max       = {{ L_max | lit("int") }}    # highest moment stored in the XS file
+L_domain    = {{ L_domain | lit("plain") }}
+N_mesh      = {{ N_mesh | lit("int") }}   # cells per dimension  (N_mesh^3 cells total)
+N_polar     = {{ N_polar | lit("int") }}
+N_azimuthal = {{ N_azimuthal | lit("int") }}
+
+n_dirs = 2 * N_polar * N_azimuthal
+L_auto = int(np.sqrt(n_dirs) - 1)
+print(f"sigma_t         = {sigma_t}")
+print(f"sigma_s         = {sigma_s}  ->  sigma_a = {sigma_a}")
+print(f"Q               = {Q}  ->  phi_analytical = {analytical_phi}")
+print(f"Mesh            = {N_mesh}^3 = {N_mesh**3} cells")
+print(f"Directions      = {n_dirs}  (2 x {N_polar} polar x {N_azimuthal} azimuthal)")
+print(f"Galerkin One auto L = {L_auto}  ((L+1)^2 = {(L_auto+1)**2})")
+
+# ── Delta-forward XS: sigma_s,ell = sigma_s for ALL ell ──────────────────────
+xs_filename = {{ xs_filename | lit("dq") }}
+with open(xs_filename, "w") as f:
+    f.write("NUM_GROUPS 1\n")
+    f.write(f"NUM_MOMENTS {L_max + 1}\n\n")
+    f.write("SIGMA_T_BEGIN\n")
+    f.write(f"0 {sigma_t:.10f}\n")
+    f.write("SIGMA_T_END\n\n")
+    f.write("TRANSFER_MOMENTS_BEGIN\n")
+    for ell in range(L_max + 1):
+        f.write(f"M_GFROM_GTO_VAL {ell} 0 0 {sigma_s:.10f}\n")
+    f.write("TRANSFER_MOMENTS_END\n")
+
+# ── Pure-absorber reference XS: sigma_t = sigma_a, no scattering ─────────────
+xs_ref_filename = {{ xs_ref_filename | lit("dq") }}
+with open(xs_ref_filename, "w") as f:
+    f.write("NUM_GROUPS 1\n")
+    f.write("NUM_MOMENTS 1\n\n")
+    f.write("SIGMA_T_BEGIN\n")
+    f.write(f"0 {sigma_a:.10f}\n")
+    f.write("SIGMA_T_END\n\n")
+    f.write("TRANSFER_MOMENTS_BEGIN\n")
+    f.write("TRANSFER_MOMENTS_END\n")
+
+# ── 3D cube mesh ──────────────────────────────────────────────────────────────
+dx = L_domain / N_mesh
+nodes = [i * dx for i in range(N_mesh + 1)]
+meshgen = OrthogonalMeshGenerator(node_sets=[nodes, nodes, nodes])
+grid    = meshgen.Execute()
+grid.SetUniformBlockID(0)
+
+def check_dm(label, q):
+    D2M     = q.GetDiscreteToMomentOperator()   # stored as D^T in OpenSn
+    M2D     = q.GetMomentToDiscreteOperator()
+    product = D2M.T @ M2D                       # = D @ M  (n_mom x n_mom)
+    n_mom   = M2D.shape[1]
+    diag    = np.diag(product)
+    mask    = ~np.eye(product.shape[0], product.shape[1], dtype=bool)
+    max_off = np.abs(product[mask]).max() if product[mask].size > 0 else 0.0
+    max_dev = np.abs(diag - 1.0).max()
+    print(f"  {label}")
+    print(f"    D2M {D2M.shape}, M2D {M2D.shape}  ({n_mom} moments)")
+    print(f"    Max |off-diagonal of D@M| : {max_off:.3e}")
+    print(f"    Max |diag(D@M) - 1|       : {max_dev:.3e}")
+
+print(f"D@M orthogonality  (N_polar={N_polar}, N_azimuthal={N_azimuthal}, {n_dirs} directions)")
+print("-" * 60)
+
+q_std = GLCProductQuadrature3DXYZ(
+    n_polar=N_polar, n_azimuthal=N_azimuthal,
+    scattering_order=L_compare, operator_method={{ operator_method | lit("sq") }})
+q_g1  = GLCProductQuadrature3DXYZ(
+    n_polar=N_polar, n_azimuthal=N_azimuthal,
+    operator_method={{ glcproduct_quadrature3_dxyz_operator_method | lit("sq") }})
+q_g3  = GLCProductQuadrature3DXYZ(
+    n_polar=N_polar, n_azimuthal=N_azimuthal,
+    scattering_order=L_compare, operator_method={{ glcproduct_quadrature3_dxyz_operator_method_2 | lit("sq") }})
+
+check_dm(f"Standard       (L={L_compare}, {(L_compare+1)**2} moments)", q_std)
+check_dm(f"Galerkin One   (L=auto={L_auto}, {(L_auto+1)**2} moments)", q_g1)
+check_dm(f"Galerkin Three (L={L_compare}, {(L_compare+1)**2} moments)", q_g3)
+
+def run_transport(pquad, xs_file):
+    """Run one steady-state transport solve; return (maxval, avgval) on all ranks."""
+    xs_mat = MultiGroupXS()
+    xs_mat.LoadFromOpenSn(xs_file)
+
+    mg_src = VolumetricSource(block_ids={{ volumetric_source_block_ids | lit("list:int") }}, group_strength=[Q])
+
+    phys = DiscreteOrdinatesProblem(
+        mesh=grid,
+        num_groups={{ num_groups | lit("int") }},
+        groupsets=[{
+            "groups_from_to": (0, 0),
+            "angular_quadrature": pquad,
+            "inner_linear_method": {{ inner_linear_method | lit("dq") }},
+            "l_abs_tol": {{ l_abs_tol | lit("sci") }},
+            "l_max_its": {{ l_max_its | lit("int") }},
+            "gmres_restart_interval": {{ gmres_restart_interval | lit("int") }},
+        }],
+        xs_map=[{"block_ids": {{ xs_map_block_ids | lit("list:int") }}, "xs": xs_mat}],
+        volumetric_sources=[mg_src],
+        boundary_conditions=[
+            {"name": {{ xmin_name | lit("dq") }}, "type": {{ xmin_type | lit("dq") }}, "group_strength": [bsrc]},
+            {"name": {{ xmax_name | lit("dq") }}, "type": {{ xmax_type | lit("dq") }}, "group_strength": [bsrc]},
+            {"name": {{ ymin_name | lit("dq") }}, "type": {{ ymin_type | lit("dq") }}, "group_strength": [bsrc]},
+            {"name": {{ ymax_name | lit("dq") }}, "type": {{ ymax_type | lit("dq") }}, "group_strength": [bsrc]},
+            {"name": {{ zmin_name | lit("dq") }}, "type": {{ zmin_type | lit("dq") }}, "group_strength": [bsrc]},
+            {"name": {{ zmax_name | lit("dq") }}, "type": {{ zmax_type | lit("dq") }}, "group_strength": [bsrc]},
+        ],
+    )
+    ss = SteadyStateSourceSolver(problem=phys)
+    ss.Initialize()
+    ss.Execute()
+
+    fflist  = phys.GetScalarFluxFieldFunction()
+    vol_all = RPPLogicalVolume(infx=True, infy=True, infz=True)
+
+    ffi_max = FieldFunctionInterpolationVolume()
+    ffi_max.SetOperationType("max")
+    ffi_max.SetLogicalVolume(vol_all)
+    ffi_max.AddFieldFunction(fflist[0])
+    ffi_max.Execute()
+    maxval = ffi_max.GetValue()
+
+    ffi_avg = FieldFunctionInterpolationVolume()
+    ffi_avg.SetOperationType("avg")
+    ffi_avg.SetLogicalVolume(vol_all)
+    ffi_avg.AddFieldFunction(fflist[0])
+    ffi_avg.Execute()
+    avgval = ffi_avg.GetValue()
+
+    return maxval, avgval
+
+
+# ── Reference (pure absorber = exact delta-forward solution) ──────────────────
+print("=== Reference: pure absorber ===")
+pquad_ref = GLCProductQuadrature3DXYZ(
+    n_polar=N_polar, n_azimuthal=N_azimuthal, scattering_order={{ scattering_order | lit("int") }})
+max_ref, avg_ref = run_transport(pquad_ref, xs_ref_filename)
+if rank == 0:
+    print(f"  Max flux = {max_ref:.5f},  Avg flux = {avg_ref:.5f}")
+    print(f"  Analytical = {analytical_phi:.5f}")
+
+# ── Method comparison ─────────────────────────────────────────────────────────
+runs = [
+    (f"Standard       (L={L_compare})", q_std),
+    (f"Galerkin One   (L=auto={L_auto})", q_g1),
+    (f"Galerkin Three (L={L_compare})", q_g3),
+]
+flux_methods = {}
+
+for label, pquad in runs:
+    print(f"\n=== {label} ===")
+    maxval, avgval = run_transport(pquad, xs_filename)
+    if rank == 0:
+        flux_methods[label] = (maxval, avgval)
+        print(f"  Max flux = {maxval:.5f},  Avg flux = {avgval:.5f}")
+
+print(f"\nnumber of operator methods tested = {len(runs)}")
+
+if rank == 0 and flux_methods:
+    col = f"{'Method':<32} {'Max φ':>8} {'Avg φ':>8} {'Err avg %':>10} {'Non-unif %':>11}"
+    print(col)
+    print("-" * len(col))
+
+    def row(label, maxv, avgv):
+        err  = abs(avgv - analytical_phi) / analytical_phi * 100
+        nonu = (maxv - avgv) / analytical_phi * 100
+        print(f"{label:<32} {maxv:>8.5f} {avgv:>8.5f} {err:>10.4f} {nonu:>11.4f}")
+
+    row("Reference (pure absorber)", max_ref, avg_ref)
+    for label, (maxv, avgv) in flux_methods.items():
+        row(label, maxv, avgv)
+
+    print(f"\n  Analytical φ* = Q/σ_a = {Q}/{sigma_a} = {analytical_phi:.4f}")
+
+if rank == 0:
+    for fname in [xs_filename, xs_ref_filename]:
+        if os.path.exists(fname):
+            os.remove(fname)
+    print("Temporary files cleaned up.")
+
+from IPython import get_ipython
+
+def finalize_env():
+    Finalize()
+    MPI.Finalize()
+
+ipython_instance = get_ipython()
+if ipython_instance is not None:
+    ipython_instance.events.register("post_execute", finalize_env)

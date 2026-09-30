@@ -1,0 +1,100 @@
+import os
+import numpy as np
+from mpi4py import MPI
+
+
+from pyopensn.aquad import GLCProductQuadrature3DXYZ
+
+def check_orthogonality(D2M, M2D, label):
+    """Check how close D @ M is to the identity matrix."""
+    product = D2M.T @ M2D
+    n = min(product.shape)
+    diag = np.diag(product)
+    mask = np.ones(product.shape, dtype=bool)
+    np.fill_diagonal(mask, False)
+    max_off_diag = np.abs(product[mask]).max() if product[mask].size > 0 else 0.0
+    max_diag_dev = np.abs(diag - 1.0).max()
+    print(f"{label}:")
+    print(f"  D2M shape: {D2M.shape}, M2D shape: {M2D.shape}")
+    print(f"  Max off-diagonal of D2M^T @ M2D: {max_off_diag:.6e}")
+    print(f"  Max diagonal deviation from 1:   {max_diag_dev:.6e}")
+    print()
+    return max_off_diag, max_diag_dev
+
+pquad_std = GLCProductQuadrature3DXYZ(
+    n_polar={{ n_polar | lit("int") }}, n_azimuthal={{ n_azimuthal | lit("int") }}, scattering_order={{ scattering_order | lit("int") }}, operator_method={{ operator_method | lit("sq") }}
+)
+
+D2M_pquad_std = pquad_std.GetDiscreteToMomentOperator()
+M2D_pquad_std = pquad_std.GetMomentToDiscreteOperator()
+
+off_pquad_std, diag_pquad_std = check_orthogonality(D2M_pquad_std, M2D_pquad_std, "Standard")
+
+pquad_g1 = GLCProductQuadrature3DXYZ(
+    n_polar={{ glcproduct_quadrature3_dxyz_n_polar | lit("int") }}, n_azimuthal={{ glcproduct_quadrature3_dxyz_n_azimuthal | lit("int") }}, operator_method={{ glcproduct_quadrature3_dxyz_operator_method | lit("sq") }}
+)
+
+D2M_pquad_g1 = pquad_g1.GetDiscreteToMomentOperator()
+M2D_pquad_g1 = pquad_g1.GetMomentToDiscreteOperator()
+
+off_pquad_g1, diag_pquad_g1 = check_orthogonality(D2M_pquad_g1, M2D_pquad_g1, "Galerkin One")
+
+pquad_g3 = GLCProductQuadrature3DXYZ(
+    n_polar={{ glcproduct_quadrature3_dxyz_n_polar_2 | lit("int") }}, n_azimuthal={{ glcproduct_quadrature3_dxyz_n_azimuthal_2 | lit("int") }}, scattering_order={{ glcproduct_quadrature3_dxyz_scattering_order | lit("int") }}, operator_method={{ glcproduct_quadrature3_dxyz_operator_method_2 | lit("sq") }}
+)
+
+D2M_pquad_g3 = pquad_g3.GetDiscreteToMomentOperator()
+M2D_pquad_g3 = pquad_g3.GetMomentToDiscreteOperator()
+
+off_pquad_g3, diag_pquad_g3 = check_orthogonality(D2M_pquad_g3, M2D_pquad_g3, "Galerkin Three")
+
+print(f"{'Method':<20} {'Max off-diagonal':>20} {'Max diag deviation':>20}")
+print("-" * 62)
+print(f"{'Standard':<20} {off_pquad_std:>20.6e} {diag_pquad_std:>20.6e}")
+print(f"{'Galerkin One':<20} {off_pquad_g1:>20.6e} {diag_pquad_g1:>20.6e}")
+print(f"{'Galerkin Three':<20} {off_pquad_g3:>20.6e} {diag_pquad_g3:>20.6e}")
+
+from pyopensn.aquad import SLDFEsqQuadrature3DXYZ
+
+ldfe_std = SLDFEsqQuadrature3DXYZ(
+    level={{ level | lit("int") }}, scattering_order={{ sldfesq_quadrature3_dxyz_scattering_order | lit("int") }}, operator_method={{ sldfesq_quadrature3_dxyz_operator_method | lit("dq") }}
+)
+
+D2M_ldfe_std = ldfe_std.GetDiscreteToMomentOperator()
+M2D_ldfe_std = ldfe_std.GetMomentToDiscreteOperator()
+
+off_ldfe_std, diag_ldfe_std = check_orthogonality(D2M_ldfe_std, M2D_ldfe_std, "Standard")
+
+ldfe_gq1 = SLDFEsqQuadrature3DXYZ(
+    level={{ sldfesq_quadrature3_dxyz_level | lit("int") }}, operator_method={{ sldfesq_quadrature3_dxyz_operator_method_2 | lit("dq") }}
+)
+
+D2M_ldfe_gq1 = ldfe_gq1.GetDiscreteToMomentOperator()
+M2D_ldfe_gq1 = ldfe_gq1.GetMomentToDiscreteOperator()
+
+off_ldfe_gq1, diag_ldfe_gq1 = check_orthogonality(D2M_ldfe_gq1, M2D_ldfe_gq1, "Galerkin One")
+
+ldfe_gq3 = SLDFEsqQuadrature3DXYZ(
+    level={{ sldfesq_quadrature3_dxyz_level_2 | lit("int") }}, scattering_order={{ sldfesq_quadrature3_dxyz_scattering_order_2 | lit("int") }}, operator_method={{ sldfesq_quadrature3_dxyz_operator_method_3 | lit("dq") }}
+)
+
+D2M_ldfe_gq3 = ldfe_gq3.GetDiscreteToMomentOperator()
+M2D_ldfe_gq3 = ldfe_gq3.GetMomentToDiscreteOperator()
+
+off_ldfe_gq3, diag_ldfe_gq3 = check_orthogonality(D2M_ldfe_gq3, M2D_ldfe_gq3, "Galerkin Three")
+
+print(f"{'Method':<20} {'Max off-diagonal':>20} {'Max diag deviation':>20}")
+print("-" * 62)
+print(f"{'Standard':<20} {off_ldfe_std:>20.6e} {diag_ldfe_std:>20.6e}")
+print(f"{'Galerkin One':<20} {off_ldfe_gq1:>20.6e} {diag_ldfe_gq1:>20.6e}")
+print(f"{'Galerkin Three':<20} {off_ldfe_gq3:>20.6e} {diag_ldfe_gq3:>20.6e}")
+
+from IPython import get_ipython
+
+def finalize_env():
+    Finalize()
+    MPI.Finalize()
+
+ipython_instance = get_ipython()
+if ipython_instance is not None:
+    ipython_instance.events.register("post_execute", finalize_env)

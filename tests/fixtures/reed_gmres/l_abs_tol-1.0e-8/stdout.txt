@@ -1,0 +1,67 @@
+00:00:00.1 Setting orthogonal boundaries.
+00:00:00.2 Done setting orthogonal boundaries.
+imat= 0 , zmin= 0.0 , zmax= 2.0
+00:00:00.2 Done setting block id 0 from logical volume.
+imat= 1 , zmin= 2.0 , zmax= 3.0
+00:00:00.3 Done setting block id 1 from logical volume.
+imat= 2 , zmin= 3.0 , zmax= 5.0
+00:00:00.3 Done setting block id 2 from logical volume.
+imat= 3 , zmin= 5.0 , zmax= 6.0
+00:00:00.4 Done setting block id 3 from logical volume.
+imat= 4 , zmin= 6.0 , zmax= 8.0
+00:00:00.4 Done setting block id 4 from logical volume.
+00:00:00.6 Initializing spatial discretization.
+00:00:01.1 Computing unit cell-matrices.
+00:00:01.3 Done computing unit cell-matrices.
+00:00:01.4 Initializing parallel arrays.
+00:00:01.5 WGS groups [0-0] iteration = 0, residual = 1.000000e+00
+00:00:01.6 WGS groups [0-0] iteration = 1, residual = 7.187566e-01
+00:00:01.6 WGS groups [0-0] iteration = 2, residual = 2.771130e-01
+00:00:01.7 WGS groups [0-0] iteration = 3, residual = 2.634128e-01
+00:00:01.7 WGS groups [0-0] iteration = 4, residual = 1.237418e-01
+00:00:01.8 WGS groups [0-0] iteration = 5, residual = 6.814642e-02
+00:00:01.9 WGS groups [0-0] iteration = 6, residual = 5.797389e-02
+00:00:01.9 WGS groups [0-0] iteration = 7, residual = 2.283738e-02
+00:00:02.0 WGS groups [0-0] iteration = 8, residual = 1.795829e-02
+00:00:02.1 WGS groups [0-0] iteration = 9, residual = 1.082212e-02
+00:00:02.1 WGS groups [0-0] iteration = 10, residual = 5.003735e-03
+00:00:02.2 WGS groups [0-0] iteration = 11, residual = 4.315979e-03
+00:00:02.2 WGS groups [0-0] iteration = 12, residual = 1.964220e-03
+00:00:02.3 WGS groups [0-0] iteration = 13, residual = 1.243613e-03
+00:00:02.4 WGS groups [0-0] iteration = 14, residual = 8.889113e-04
+00:00:02.4 WGS groups [0-0] iteration = 15, residual = 3.955871e-04
+00:00:02.5 WGS groups [0-0] iteration = 16, residual = 3.072116e-04
+00:00:02.6 WGS groups [0-0] iteration = 17, residual = 1.678029e-04
+00:00:02.6 WGS groups [0-0] iteration = 18, residual = 9.072048e-05
+00:00:02.7 WGS groups [0-0] iteration = 19, residual = 6.829393e-05
+00:00:02.7 WGS groups [0-0] iteration = 20, residual = 3.270258e-05
+00:00:02.8 WGS groups [0-0] iteration = 21, residual = 2.187958e-05
+00:00:02.9 WGS groups [0-0] iteration = 22, residual = 1.373197e-05
+00:00:02.9 WGS groups [0-0] iteration = 23, residual = 7.024578e-06
+00:00:03.0 WGS groups [0-0] iteration = 24, residual = 5.027940e-06
+00:00:03.0 WGS groups [0-0] iteration = 25, residual = 2.711865e-06
+00:00:03.1 WGS groups [0-0] iteration = 26, residual = 1.615364e-06
+00:00:03.2 WGS groups [0-0] iteration = 27, residual = 1.065768e-06
+00:00:03.2 WGS groups [0-0] iteration = 28, residual = 5.658165e-07
+00:00:03.3 WGS groups [0-0] iteration = 29, residual = 3.684962e-07
+00:00:03.4 WGS groups [0-0] iteration = 30, residual = 2.179766e-07
+00:00:03.4 WGS groups [0-0] iteration = 31, residual = 1.250554e-07
+00:00:03.5 WGS groups [0-0] iteration = 32, residual = 7.980539e-08
+00:00:03.5 WGS groups [0-0] iteration = 33, residual = 4.576506e-08
+00:00:03.6 WGS groups [0-0] iteration = 34, residual = 2.779088e-08
+00:00:03.7 WGS groups [0-0] iteration = 35, residual = 1.677514e-08
+00:00:03.7 WGS groups [0-0] iteration = 36, residual = 6.400000e-09, status = converged
+00:00:03.8 AGS iteration = 0, l2_change = 4.271883e-08, status = converged; WGS = converged
+00:00:03.8 WGS groups [0-0] avg_sweep_time = 5.910000e-02 s, sweep_time_per_unknown = 2.308594e+02 ns
+00:00:03.8 WGS groups [0-0] unknowns = 256000, lagged_unknowns = 0, lagged_pct = 0.00
+
+Balance table:
+ Absorption rate             = 1.006178e+02
+ Production rate             = 1.010000e+02
+ In-flow rate                = 0.000000e+00
+ Out-flow rate               = 3.821562e-01
+ Balance                     = 3.552714e-14
+
+Absorption=1.006178e+02
+OutFlow=3.821562e-01
+AvgFlux=2.387194007e+00

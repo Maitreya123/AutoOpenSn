@@ -1,0 +1,270 @@
+import csv
+import math
+import os
+import sys
+from pathlib import Path
+
+from mpi4py import MPI
+
+size = MPI.COMM_WORLD.size
+rank = MPI.COMM_WORLD.rank
+
+if size != 1:
+    raise RuntimeError("This notebook must be run with exactly one MPI rank.")
+
+if rank == 0:
+    print(f"Running with {size} MPI process.")
+
+repo_root = Path.cwd()
+for candidate in (repo_root, *repo_root.parents):
+    if (candidate / "test/assets/mesh").exists():
+        repo_root = candidate
+        break
+else:
+    raise RuntimeError("Could not locate the OpenSn repository root.")
+
+sys.path.insert(0, str(repo_root / "build"))
+
+from pyopensn.aquad import GLCProductQuadrature3DXYZ
+from pyopensn.fieldfunc import (
+    FieldFunctionInterpolationLine,
+    FieldFunctionInterpolationPoint,
+    FieldFunctionInterpolationVolume,
+)
+from pyopensn.logvol import RPPLogicalVolume
+from pyopensn.math import Vector3
+from pyopensn.mesh import FromFileMeshGenerator
+from pyopensn.solver import (
+    DiscreteOrdinatesProblem,
+    SteadyStateSourceSolver,
+    UncollidedProblem,
+    UncollidedSolver,
+)
+from pyopensn.source import PointSource
+from pyopensn.xs import MultiGroupXS
+
+mesh_file = repo_root / "test/assets/mesh/uncollided_cube_coarse.msh"
+uncollided_file = Path("uncollided.h5")
+source_location = (0.010, 0.012, 0.014)
+sample_point = (0.024, 0.016, 0.008)
+
+
+def make_mesh():
+    grid = FromFileMeshGenerator(filename=str(mesh_file)).Execute()
+    grid.SetUniformBlockID(0)
+    return grid
+
+
+def make_xs():
+    xs = MultiGroupXS()
+    xs.CreateSimpleOneGroup(sigma_t={{ sigma_t | lit("plain") }}, c={{ c | lit("plain") }})
+    return xs
+
+
+def make_whole_domain():
+    return RPPLogicalVolume(
+        xmin={{ xmin | lit("plain") }},
+        xmax={{ xmax | lit("plain") }},
+        ymin={{ ymin | lit("plain") }},
+        ymax={{ ymax | lit("plain") }},
+        zmin={{ zmin | lit("plain") }},
+        zmax={{ zmax | lit("plain") }},
+    )
+
+
+def point_value(field_function, point):
+    interpolation = FieldFunctionInterpolationPoint()
+    interpolation.SetPointOfInterest(Vector3(*point))
+    interpolation.AddFieldFunction(field_function)
+    interpolation.Execute()
+    return interpolation.GetPointValue()
+
+
+def volume_integral(field_function, logical_volume):
+    interpolation = FieldFunctionInterpolationVolume()
+    interpolation.SetOperationType("sum")
+    interpolation.SetLogicalVolume(logical_volume)
+    interpolation.AddFieldFunction(field_function)
+    interpolation.Execute()
+    return interpolation.GetValue()
+
+line_start = Vector3(0.0, source_location[1], source_location[2])
+line_end = Vector3(0.032, source_location[1], source_location[2])
+plot_dir = Path("tutorial_output")
+plot_dir.mkdir(exist_ok={{ exist_ok | lit("bool") }})
+
+def csv_to_dict(filename):
+    data = {}
+    with open(filename, newline={{ newline | lit("dq") }}) as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            for key, value in row.items():
+                data.setdefault(key, []).append(float(value))
+    return data
+
+def export_line_data(field_function, csv_stem, start_point, end_point, num_points=200):
+    for csv_file in plot_dir.glob(f"{csv_stem}_*.csv"):
+        csv_file.unlink()
+    ffline = FieldFunctionInterpolationLine()
+    ffline.SetInitialPoint(start_point)
+    ffline.SetFinalPoint(end_point)
+    ffline.SetNumberOfPoints(num_points)
+    ffline.AddFieldFunction(field_function)
+    ffline.Execute()
+    ffline.ExportToCSV(str(plot_dir / csv_stem))
+    csv_file = next(plot_dir.glob(f"{csv_stem}_*.csv"))
+    return csv_to_dict(csv_file)
+
+
+def analytic_uncollided_scalar_flux(distance, sigma_t=0.8, strength=1.0):
+    return strength * math.exp(-sigma_t * distance) / (4.0 * math.pi * distance * distance)
+
+def relative_error(reference, value):
+    return abs(value - reference) / abs(reference)
+
+try:
+    uncollided_file.unlink()
+except FileNotFoundError:
+    pass
+
+grid = make_mesh()
+xs = make_xs()
+whole_domain = make_whole_domain()
+
+uncollided_problem = UncollidedProblem(
+    mesh=grid,
+    num_groups={{ num_groups | lit("int") }},
+    groupsets=[{"groups_from_to": {{ groups_from_to | lit("list:int") }}}],
+    xs_map=[{"block_ids": {{ xs_map_block_ids | lit("list:int") }}, "xs": xs}],
+    point_sources=[PointSource(location=list(source_location), strength={{ strength | lit("list:plain") }})],
+    near_source=[whole_domain],
+    scattering_order={{ scattering_order | lit("int") }},
+)
+uncollided_solver = UncollidedSolver(
+    problem=uncollided_problem,
+    file_name=str(uncollided_file),
+    progress_interval={{ progress_interval | lit("int") }},
+)
+uncollided_solver.Initialize()
+uncollided_solver.Execute()
+
+if rank == 0:
+    print("Uncollided file:", uncollided_file)
+
+uncollided_scalar_flux = uncollided_problem.GetScalarFluxFieldFunction()[0]
+uncollided_line = export_line_data(
+    uncollided_scalar_flux,
+    "uncollided_line",
+    line_start,
+    line_end,
+)
+
+analytic_exclusion_radius = {{ analytic_exclusion_radius | lit("sci") }}
+analytic_distances = []
+analytic_values = []
+open_sn_values = []
+relative_errors = []
+
+for x_value, phi_value in zip(uncollided_line["x"], uncollided_line["phi_g000_m00"]):
+    distance = abs(x_value - source_location[0])
+    if distance <= analytic_exclusion_radius:
+        continue
+    analytic_value = analytic_uncollided_scalar_flux(distance)
+    analytic_distances.append(distance)
+    analytic_values.append(analytic_value)
+    open_sn_values.append(phi_value)
+    relative_errors.append(relative_error(analytic_value, phi_value))
+
+sample_distance = math.dist(sample_point, source_location)
+analytic_sample_flux = analytic_uncollided_scalar_flux(sample_distance)
+open_sn_sample_flux = point_value(uncollided_scalar_flux, sample_point)
+
+if rank == 0:
+    print(f"AnalyticExclusionRadius={analytic_exclusion_radius:.12e}")
+    print(f"AnalyticComparisonPoints={len(relative_errors)}")
+    print(f"UncollidedLineMeanRelativeError={sum(relative_errors)/len(relative_errors):.12e}")
+    print(f"UncollidedLineMaxRelativeError={max(relative_errors):.12e}")
+    print(f"UncollidedSampleDistance={sample_distance:.12e}")
+    print(f"UncollidedSampleOpenSn={open_sn_sample_flux:.12e}")
+    print(f"UncollidedSampleAnalytic={analytic_sample_flux:.12e}")
+    print(
+        f"UncollidedSampleRelativeError="
+        f"{relative_error(analytic_sample_flux, open_sn_sample_flux):.12e}"
+    )
+
+#import matplotlib.pyplot as plt
+#
+# uncollided_scalar_flux = uncollided_problem.GetScalarFluxFieldFunction()[0]
+# uncollided_line = export_line_data(
+#     uncollided_scalar_flux,
+#     "uncollided_line",
+#     line_start,
+#     line_end,
+# )
+#
+# plt.figure()
+# plt.semilogy(uncollided_line["x"], uncollided_line["phi_g000_m00"])
+# plt.xlabel("x (m)")
+# plt.ylabel(r"$\phi_u(x)$")
+# plt.title("Uncollided scalar flux along the source-centered line")
+# plt.grid()
+# plt.show()
+
+grid = make_mesh()
+xs = make_xs()
+whole_domain = make_whole_domain()
+
+quadrature = GLCProductQuadrature3DXYZ(
+    n_polar={{ n_polar | lit("int") }},
+    n_azimuthal={{ n_azimuthal | lit("int") }},
+    scattering_order={{ glcproduct_quadrature3_dxyz_scattering_order | lit("int") }},
+)
+
+problem = DiscreteOrdinatesProblem(
+    mesh=grid,
+    num_groups={{ discrete_ordinates_problem_num_groups | lit("int") }},
+    groupsets=[
+        {
+            "groups_from_to": {{ groupset_groups_from_to | lit("list:int") }},
+            "angular_quadrature": quadrature,
+            "angle_aggregation_type": {{ angle_aggregation_type | lit("dq") }},
+            "inner_linear_method": {{ inner_linear_method | lit("dq") }},
+            "gmres_restart_interval": {{ gmres_restart_interval | lit("int") }},
+            "l_abs_tol": {{ l_abs_tol | lit("sci") }},
+            "l_max_its": {{ l_max_its | lit("int") }},
+        }
+    ],
+    xs_map=[{"block_ids": {{ xs_map_block_ids_2 | lit("list:int") }}, "xs": xs}],
+    uncollided_flux=str(uncollided_file),
+)
+
+solver = SteadyStateSourceSolver(problem=problem, compute_balance={{ compute_balance | lit("bool") }})
+solver.Initialize()
+solver.Execute()
+
+scalar_flux = problem.GetScalarFluxFieldFunction()[0]
+point_flux = point_value(scalar_flux, sample_point)
+total_integral = volume_integral(scalar_flux, whole_domain)
+balance = solver.ComputeBalanceTable()["balance"]
+
+if rank == 0:
+    print(f"Total scalar flux at {sample_point}: {point_flux:.12e}")
+    print(f"Total scalar-flux integral: {total_integral:.12e}")
+    print(f"Balance residual: {balance:.12e}")
+
+# import matplotlib.pyplot as plt
+#
+# total_line = export_line_data(
+#     scalar_flux,
+#     "total_line",
+#     line_start,
+#     line_end,
+# )
+#
+# plt.figure()
+# plt.semilogy(total_line["x"], total_line["phi_g000_m00"])
+# plt.xlabel("x (m)")
+# plt.ylabel(r"$\phi(x)$")
+# plt.title("Total scalar flux along the source-centered line")
+# plt.grid()
+# plt.show()

@@ -1,0 +1,347 @@
+name: pincell_example
+description: 'Reactor pin cell. `jupyter nbconvert --to python --execute <notebook_name>.ipynb`.
+  To run this notebook in parallel (for example, using 4 processes), simply type:
+  `mpiexec -n 4 jupyter nbconvert --to python --execute <notebook_name>.ipynb`. Import
+  required classes and functions from the Python interface of OpenSn. Run this notebook
+  from an environment where the `pyopensn` package is importable. For more accurate
+  results, we suggest using `n_polar = 8` and `n_azimuthal = 32` We create an edit
+  zone (logical volume) that is the entire domain. We request the average (keyword
+  `"avg"`) of the scalar flux over the…'
+source: doc/source/tutorials/problems/eigenvalue/pincell_example.ipynb
+opensn_commit: 2fd4a19ceade4f8da581a5029c68f474d3333ccb
+script: pincell_example.py.j2
+generated_from: problems/eigenvalue/pincell_example.ipynb
+num_procs: 8
+notes: 'Generated from the OpenSn tutorial problems/eigenvalue/pincell_example.ipynb
+  at the pinned commit. Do not edit
+
+  by hand: regenerate with `autoopensn scenarios --rebuild`, or the edit is lost.
+
+
+  Rendering this template with every parameter at its default reproduces the
+
+  tutorial''s script character for character, which the generator verifies before
+
+  writing and the test suite re-checks on every run.
+
+
+  32 literal(s) in the script were turned into parameters. 0 were left
+
+  as constants because their notation could not be reproduced exactly, which is
+
+  the conservative direction: a knob that corrupts the script is worse than a
+
+  constant.
+
+
+  A parameter whose provenance is `inferred` has a range scaled from the value the
+
+  tutorial itself uses. That is a guard against an absurd study, not a limit the
+
+  code enforces, and it is the first thing to widen when a legitimate study is
+
+  rejected.
+
+  '
+observables:
+- sweeps
+- iterations
+- wall_time
+- eigenvalue
+parameters:
+  from_file_mesh_generator_filename:
+    group: mesh
+    type: str
+    default: pincell.obj
+    provenance: inferred
+    description: Keyword argument filename of FromFileMeshGenerator. Range is a guard
+      scaled from the tutorial's own value, not a code limit; widen it by hand if
+      a study needs more.
+  xs_filepath:
+    group: materials
+    type: str
+    default: ./mgxs_2B_one_eighth_SHEM-361.h5
+    provenance: inferred
+    description: Script variable xs_filepath. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+  scat_order:
+    group: misc
+    type: int
+    default: 3
+    provenance: inferred
+    description: Script variable scat_order. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10000.0
+  n_polar:
+    group: quadrature
+    type: int
+    default: 2
+    provenance: opensn
+    description: 'From the tutorial: For more accurate results, we suggest using `n_polar
+      = 8` and `n_azimuthal = 32` ## Linear Boltzmann Solver ### Options for the Linear
+      Boltzmann Problem (LBS) ### Putting the Linear Boltzmann Solver Together We
+      then create the physics solver, initialize it, and execute it. Range from OpenSn
+      itself (polar ordinates; must be even).'
+    minimum: 2
+    maximum: 1024
+  n_azimuthal:
+    group: quadrature
+    type: int
+    default: 4
+    provenance: opensn
+    description: 'From the tutorial: For more accurate results, we suggest using `n_polar
+      = 8` and `n_azimuthal = 32` ## Linear Boltzmann Solver ### Options for the Linear
+      Boltzmann Problem (LBS) ### Putting the Linear Boltzmann Solver Together We
+      then create the physics solver, initialize it, and execute it. Range from OpenSn
+      itself (azimuthal ordinates; must be even).'
+    minimum: 2
+    maximum: 1024
+  angle_aggregation_type:
+    group: misc
+    type: str
+    default: polar
+    provenance: inferred
+    description: Entry 'angle_aggregation_type' of the groupset block. Range is a
+      guard scaled from the tutorial's own value, not a code limit; widen it by hand
+      if a study needs more.
+  inner_linear_method:
+    group: solver
+    type: str
+    default: classic_richardson
+    provenance: opensn
+    description: Entry 'inner_linear_method' of the groupset block. Range from OpenSn
+      itself (allowable list from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    choices:
+    - classic_richardson
+    - petsc_richardson
+    - petsc_gmres
+    - petsc_bicgstab
+  l_abs_tol:
+    group: solver
+    type: float
+    default: 1.0e-05
+    provenance: opensn
+    description: Entry 'l_abs_tol' of the groupset block. Range from OpenSn itself
+      (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1.0e-18
+    maximum: 0.01
+  l_max_its:
+    group: solver
+    type: int
+    default: 300
+    provenance: opensn
+    description: Entry 'l_max_its' of the groupset block. Range from OpenSn itself
+      (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1
+    maximum: 100000
+  xmin_name:
+    group: mesh
+    type: str
+    default: xmin
+    provenance: inferred
+    description: Entry 'xmin_name' of the xmin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  xmin_type:
+    group: mesh
+    type: str
+    default: reflecting
+    provenance: inferred
+    description: Entry 'xmin_type' of the xmin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  xmax_name:
+    group: mesh
+    type: str
+    default: xmax
+    provenance: inferred
+    description: Entry 'xmax_name' of the xmax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  xmax_type:
+    group: mesh
+    type: str
+    default: reflecting
+    provenance: inferred
+    description: Entry 'xmax_type' of the xmax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  ymin_name:
+    group: mesh
+    type: str
+    default: ymin
+    provenance: inferred
+    description: Entry 'ymin_name' of the ymin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  ymin_type:
+    group: mesh
+    type: str
+    default: reflecting
+    provenance: inferred
+    description: Entry 'ymin_type' of the ymin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  ymax_name:
+    group: mesh
+    type: str
+    default: ymax
+    provenance: inferred
+    description: Entry 'ymax_name' of the ymax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  ymax_type:
+    group: mesh
+    type: str
+    default: reflecting
+    provenance: inferred
+    description: Entry 'ymax_type' of the ymax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  xs_map_block_ids:
+    group: materials
+    type: int_list
+    default:
+    - 0
+    provenance: inferred
+    description: Entry 'ids' of the xs_map block. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 1000
+    length: 1
+  xs_map_block_ids_2:
+    group: materials
+    type: int_list
+    default:
+    - 1
+    provenance: inferred
+    description: Entry '2' of the xs_map block. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10000.0
+    length: 1
+  xs_map_block_ids_3:
+    group: materials
+    type: int_list
+    default:
+    - 2
+    provenance: inferred
+    description: Entry '3' of the xs_map block. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10000.0
+    length: 1
+  xs_map_block_ids_4:
+    group: materials
+    type: int_list
+    default:
+    - 3
+    provenance: inferred
+    description: Entry '4' of the xs_map block. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 10000.0
+    length: 1
+  verbose_inner_iterations:
+    group: solver
+    type: bool
+    default: true
+    provenance: inferred
+    description: Script variable verbose_inner_iterations. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  verbose_outer_iterations:
+    group: solver
+    type: bool
+    default: true
+    provenance: inferred
+    description: Script variable verbose_outer_iterations. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  use_precursors:
+    group: misc
+    type: bool
+    default: false
+    provenance: inferred
+    description: Script variable use_precursors. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  power_default_kappa:
+    group: misc
+    type: float
+    default: 1.0
+    provenance: inferred
+    description: Script variable power_default_kappa. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+    minimum: 0
+    maximum: 10000.0
+  save_angular_flux:
+    group: misc
+    type: bool
+    default: false
+    provenance: inferred
+    description: Script variable save_angular_flux. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  k_tol:
+    group: solver
+    type: float
+    default: 1.0e-14
+    provenance: opensn
+    description: Keyword argument k_tol of PowerIterationKEigenSolver. Range from
+      OpenSn itself (user guide range 1e-8 to 1e-10).
+    minimum: 1.0e-16
+    maximum: 0.01
+  vtk_basename:
+    group: misc
+    type: str
+    default: pin_cell
+    provenance: inferred
+    description: Script variable vtk_basename. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+  drawstyle:
+    group: misc
+    type: str
+    default: steps
+    provenance: inferred
+    description: Keyword argument drawstyle of semilogx. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  label:
+    group: misc
+    type: str
+    default: flux
+    provenance: inferred
+    description: Keyword argument label of semilogx. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  loglog_drawstyle:
+    group: misc
+    type: str
+    default: steps
+    provenance: inferred
+    description: Keyword argument loglog_drawstyle of loglog. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+  loglog_label:
+    group: misc
+    type: str
+    default: flux
+    provenance: inferred
+    description: Keyword argument loglog_label of loglog. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+data_files:
+- mgxs_2B_one_eighth_SHEM-361.h5
+- pincell.obj
+gold:
+  case: pincell_example.py
+  tests_json: doc/source/tutorials/problems/eigenvalue/tests.json
+  keys:
+    Eigenvalue =: eigenvalue
+  values:
+    Eigenvalue =: 1.171551
+  tolerances:
+    Eigenvalue =:
+      abs_tol: 1.0e-06
+      rel_tol: 0.0

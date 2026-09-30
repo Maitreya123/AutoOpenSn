@@ -1,0 +1,61 @@
+from mpi4py import MPI
+from pyopensn.aquad import GLProductQuadrature1DSlab
+from pyopensn.context import Finalize
+from pyopensn.logvol import RPPLogicalVolume
+from pyopensn.mesh import OrthogonalMeshGenerator
+from pyopensn.solver import DiscreteOrdinatesProblem, SteadyStateSourceSolver
+from pyopensn.source import VolumetricSource
+from pyopensn.xs import MultiGroupXS
+
+rank = MPI.COMM_WORLD.rank
+nodes = [i / 20.0 for i in range(41)]
+mesh = OrthogonalMeshGenerator(node_sets=[nodes]).Execute()
+mesh.SetUniformBlockID(0)
+
+source_block = RPPLogicalVolume(infx=True, infy=True, zmin={{ zmin | lit("sci") }}, zmax={{ zmax | lit("plain") }})
+mesh.SetBlockIDFromLogicalVolume(source_block, 1, True)
+
+xs = MultiGroupXS()
+xs.CreateSimpleOneGroup(sigma_t={{ sigma_t | lit("plain") }}, c={{ c | lit("sci") }})
+quadrature = GLProductQuadrature1DSlab(n_polar={{ n_polar | lit("int") }}, scattering_order={{ scattering_order | lit("int") }})
+
+source = VolumetricSource(block_ids={{ volumetric_source_block_ids | lit("list:int") }}, group_strength={{ group_strength | lit("list:plain") }})
+
+problem = DiscreteOrdinatesProblem(
+    mesh=mesh,
+    num_groups={{ num_groups | lit("int") }},
+    groupsets=[
+        {
+            "groups_from_to": (0, 0),
+            "angular_quadrature": quadrature,
+            "inner_linear_method": {{ inner_linear_method | lit("dq") }},
+            "l_abs_tol": {{ l_abs_tol | lit("sci") }},
+            "l_max_its": {{ l_max_its | lit("int") }},
+        }
+    ],
+    xs_map=[{"block_ids": {{ xs_map_block_ids | lit("list:int") }}, "xs": xs}],
+    volumetric_sources=[source],
+    boundary_conditions=[
+        {"name": {{ zmin_name | lit("dq") }}, "type": {{ zmin_type | lit("dq") }}},
+        {"name": {{ zmax_name | lit("dq") }}, "type": {{ zmax_type | lit("dq") }}},
+    ],
+)
+solver = SteadyStateSourceSolver(problem=problem, compute_balance={{ compute_balance | lit("bool") }})
+solver.Initialize()
+solver.Execute()
+
+balance = solver.ComputeBalanceTable()
+production = balance["production_rate"]
+absorption = balance["absorption_rate"]
+balance_error = abs(production - absorption)
+if rank == 0:
+    print(f"Block-source production rate={production:.8e}")
+    print(f"Block-source absorption rate={absorption:.8e}")
+    print(f"Block-source balance error={balance_error:.8e}")
+assert abs(production - 1.0) < 1.0e-8
+assert balance_error < 1.0e-8
+if "opensn_console" not in globals():
+    from IPython import get_ipython
+    if get_ipython() is not None:
+        Finalize()
+        MPI.Finalize()

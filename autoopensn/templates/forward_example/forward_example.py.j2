@@ -1,0 +1,117 @@
+import os
+
+from mpi4py import MPI
+size = MPI.COMM_WORLD.size
+rank = MPI.COMM_WORLD.rank
+
+if rank == 0:
+    print(f"Running the first forward LBS example with {size} MPI processors.")
+
+
+from pyopensn.mesh import OrthogonalMeshGenerator, KBAGraphPartitioner
+from pyopensn.xs import MultiGroupXS
+from pyopensn.source import VolumetricSource
+from pyopensn.aquad import GLCProductQuadrature2DXY
+from pyopensn.solver import DiscreteOrdinatesProblem, SteadyStateSourceSolver
+from pyopensn.fieldfunc import FieldFunctionGridBased, FieldFunctionInterpolationVolume
+from pyopensn.logvol import RPPLogicalVolume
+
+from pyopensn.context import UseColor, Finalize
+
+UseColor(False)
+
+nodes = []
+n_cells = {{ n_cells | lit("int") }}
+length = {{ length | lit("plain") }}
+xmin = - length / 2
+dx = length / n_cells
+for i in range(n_cells + 1):
+    nodes.append(xmin + i * dx)
+
+meshgen = OrthogonalMeshGenerator(
+    node_sets=[nodes, nodes],
+    partitioner=KBAGraphPartitioner(
+        nx={{ nx | lit("int") }},
+        ny={{ ny | lit("int") }},
+        xcuts={{ xcuts | lit("list:sci") }},
+        ycuts={{ ycuts | lit("list:sci") }},
+    )
+)
+grid = meshgen.Execute()
+
+grid.SetUniformBlockID(0)
+
+xs_mat = MultiGroupXS()
+xs_mat.CreateSimpleOneGroup(sigma_t={{ sigma_t | lit("dot") }},c={{ c | lit("plain") }})
+
+num_groups = {{ num_groups | lit("int") }}
+strength = []
+for g in range(num_groups):
+    strength.append(1.0)
+mg_src = VolumetricSource(block_ids={{ volumetric_source_block_ids | lit("list:int") }}, group_strength=strength)
+
+pquad = GLCProductQuadrature2DXY(n_polar={{ n_polar | lit("int") }}, n_azimuthal={{ n_azimuthal | lit("int") }}, scattering_order={{ scattering_order | lit("int") }})
+
+phys = DiscreteOrdinatesProblem(
+    mesh=grid,
+    num_groups=num_groups,
+    groupsets=[
+        {
+            "groups_from_to": (0, 0),
+            "angular_quadrature": pquad,
+            "inner_linear_method": {{ inner_linear_method | lit("dq") }},
+            "l_abs_tol": {{ l_abs_tol | lit("sci") }},
+            "l_max_its": {{ l_max_its | lit("int") }},
+            "gmres_restart_interval": {{ gmres_restart_interval | lit("int") }}
+        }
+    ],
+    volumetric_sources=[mg_src],
+    xs_map=[
+        {
+            "block_ids": {{ xs_map_block_ids | lit("list:int") }},
+            "xs": xs_mat
+        }
+    ]
+)
+
+ss_solver = SteadyStateSourceSolver(problem=phys)
+ss_solver.Initialize()
+ss_solver.Execute()
+
+fflist = phys.GetScalarFluxFieldFunction(only_scalar_flux={{ only_scalar_flux | lit("bool") }})
+vtk_basename = {{ vtk_basename | lit("dq") }}
+FieldFunctionGridBased.ExportMultipleToPVTU(
+    [fflist[0][0]],  # export only the flux of group 0 (first []), moment 0 (second [])
+    vtk_basename
+)
+
+logvol = RPPLogicalVolume(xmin={{ xmin | lit("dot") }}, xmax = length/2, ymin={{ ymin | lit("dot") }}, ymax=length/2, infz=True)
+logvol_whole_domain = RPPLogicalVolume(infx=True, infy=True, infz=True)
+
+ffi = FieldFunctionInterpolationVolume()
+ffi.SetOperationType("avg")
+ffi.SetLogicalVolume(logvol)
+ffi.AddFieldFunction(fflist[0][0])
+ffi.Execute()
+val = ffi.GetValue()
+print(f"value (edit zone: quarter domain) = {val}")
+
+ffi = FieldFunctionInterpolationVolume()
+ffi.SetOperationType("avg")
+ffi.SetLogicalVolume(logvol_whole_domain)
+ffi.AddFieldFunction(fflist[0][0])
+ffi.Execute()
+val_whole = ffi.GetValue()
+if rank == 0:
+    print(f"value (edit zone: whole domain)   = {val_whole}")
+    print(f"ratio =",val_whole/val)
+
+from IPython import get_ipython
+
+def finalize_env():
+    Finalize()
+    MPI.Finalize()
+
+ipython_instance = get_ipython()
+if ipython_instance is not None:
+    ipython_instance.events.register("post_execute", finalize_env)

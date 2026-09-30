@@ -1,0 +1,9 @@
+{
+  "exit_code": 0,
+  "wall_time": 5.438,
+  "timed_out": false,
+  "recorded_at": null,
+  "runner": "hand-written",
+  "provenance": "HAND-WRITTEN, not recorded from a real run. Log line formats are reproduced from the OpenSn source at commit 2fd4a19ceade4f8da581a5029c68f474d3333ccb; see tests/fixtures/README.md. The numbers are invented and internally consistent, not physical results.",
+  "hand_written": true
+}

@@ -1,0 +1,64 @@
+if "opensn_console" not in globals():
+    from mpi4py import MPI
+    from pyopensn.aquad import GLProductQuadrature1DSlab
+    from pyopensn.context import Finalize, UseColor
+    from pyopensn.fieldfunc import FieldFunctionInterpolationVolume
+    from pyopensn.logvol import RPPLogicalVolume
+    from pyopensn.mesh import OrthogonalMeshGenerator
+    from pyopensn.solver import DiscreteOrdinatesProblem, SteadyStateSourceSolver
+    from pyopensn.source import VolumetricSource
+    from pyopensn.xs import MultiGroupXS
+
+    rank = MPI.COMM_WORLD.rank
+    UseColor(False)
+
+num_cells = {{ num_cells | lit("int") }}
+length = {{ length | lit("plain") }}
+nodes = [length * i / num_cells for i in range(num_cells + 1)]
+mesh = OrthogonalMeshGenerator(node_sets=[nodes]).Execute()
+mesh.SetOrthogonalBoundaries()
+mesh.SetUniformBlockID(0)
+
+cross_sections = MultiGroupXS()
+cross_sections.CreateSimpleOneGroup(sigma_t={{ sigma_t | lit("plain") }}, c={{ c | lit("sci") }})
+source = VolumetricSource(block_ids={{ volumetric_source_block_ids | lit("list:int") }}, group_strength={{ group_strength | lit("list:plain") }})
+quadrature = GLProductQuadrature1DSlab(n_polar={{ n_polar | lit("int") }}, scattering_order={{ scattering_order | lit("int") }})
+
+problem = DiscreteOrdinatesProblem(
+    mesh=mesh,
+    num_groups={{ num_groups | lit("int") }},
+    groupsets=[
+        {
+            "groups_from_to": (0, 0),
+            "angular_quadrature": quadrature,
+            "inner_linear_method": {{ inner_linear_method | lit("dq") }},
+            "l_abs_tol": {{ l_abs_tol | lit("sci") }},
+            "l_max_its": {{ l_max_its | lit("int") }},
+            "gmres_restart_interval": {{ gmres_restart_interval | lit("int") }},
+        }
+    ],
+    xs_map=[{"block_ids": {{ xs_map_block_ids | lit("list:int") }}, "xs": cross_sections}],
+    volumetric_sources=[source],
+)
+
+solver = SteadyStateSourceSolver(problem=problem)
+solver.Initialize()
+solver.Execute()
+
+whole_domain = RPPLogicalVolume(infx=True, infy=True, infz=True)
+interpolator = FieldFunctionInterpolationVolume()
+interpolator.SetOperationType("max")
+interpolator.SetLogicalVolume(whole_domain)
+interpolator.AddFieldFunction(problem.GetScalarFluxFieldFunction()[0])
+interpolator.Execute()
+max_flux = interpolator.GetValue()
+
+if rank == 0:
+    print(f"FOUNDATION_1D_MAX_FLUX={max_flux:.8e}")
+
+if "opensn_console" not in globals():
+    from IPython import get_ipython
+
+    if get_ipython() is not None:
+        Finalize()
+        MPI.Finalize()

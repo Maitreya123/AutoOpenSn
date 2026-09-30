@@ -1,0 +1,72 @@
+import os
+from mpi4py import MPI
+rank = MPI.COMM_WORLD.rank
+
+
+from pyopensn.mesh import OrthogonalMeshGenerator, PETScGraphPartitioner
+from pyopensn.context import UseColor, Finalize
+
+UseColor(False)
+
+length = {{ length | lit("dot") }}
+n_cells_geo = {{ n_cells_geo | lit("int") }}
+dx_geo = length / n_cells_geo
+nodes_geo = [i * dx_geo for i in range(n_cells_geo + 1)]
+
+n_refinement = {{ n_refinement | lit("int") }}
+n_cells = n_cells_geo * n_refinement
+dx = length / n_cells
+nodes_msh = [i * dx for i in range(n_cells + 1)]
+
+# Setup mesh
+meshgen = OrthogonalMeshGenerator(
+    node_sets=[nodes_msh, nodes_msh, nodes_msh],
+    partitioner=PETScGraphPartitioner(type={{ petsc_graph_partitioner_type | lit("sq") }}),
+)
+grid = meshgen.Execute()
+
+grid.SetUniformBlockID(0)
+
+def make_mat_id_function(i, j, k, material_id):
+    """
+    Returns a function that sets the block to 'material_id' if the point 'pt' lies within:
+    x between nodes[i] and nodes[i+1],
+    y between nodes[j] and nodes[j+1],
+    z between nodes[k] and nodes[k+1].
+    """
+    def mat_id(pt, cur_id):
+        if nodes_geo[i] < pt.x < nodes_geo[i+1] and \
+                nodes_geo[j] < pt.y < nodes_geo[j+1] and \
+                nodes_geo[k] < pt.z < nodes_geo[k+1]:
+            return material_id
+        return cur_id
+    return mat_id
+
+target_blocks = [
+    ((4, 4, 7), 9),  # Block defined by nodes[4] to nodes[5] in all dimensions gets material_id 9.
+    ((4, 7, 7), 55)   # Another block for demonstration.
+    ]
+
+# Create a list of material ID functions for each target block.
+mat_id_functions = [make_mat_id_function(i, j, k, material_id)
+                       for (i, j, k), material_id in target_blocks]
+
+# Apply each material ID function to the grid.
+for func in mat_id_functions:
+    grid.SetBlockIDFromFunction(func)
+
+grid.ExportToPVTU("ortho_3D_BlockIDs")
+
+n_glob_cells = grid.GetGlobalNumberOfCells()
+if rank == 0:
+    print(f"Number of cells = {n_glob_cells}")
+
+from IPython import get_ipython
+
+def finalize_env():
+    Finalize()
+    MPI.Finalize()
+
+ipython_instance = get_ipython()
+if ipython_instance is not None:
+    ipython_instance.events.register("post_execute", finalize_env)

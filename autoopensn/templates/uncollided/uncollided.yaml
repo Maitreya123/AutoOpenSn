@@ -1,0 +1,358 @@
+name: uncollided
+description: '3D Uncollided+Collided Calculation on an Unstructured Mesh. This notebook
+  demonstrates a complete uncollided-plus-collided fixed-source calculation on a small
+  tetrahedral mesh. The problem is intentionally simple: - single energy group, -
+  single material, - single point source, - serial uncollided generation followed
+  by a collided solve. The mesh is a coarse tetrahedral cube (`test/assets/mesh/uncollided_cube_coarse.msh`).
+  Run this notebook with the OpenSn Python module available. Because the uncollided
+  stage must run with exactly one MPI rank, this end-to-end notebook should be executed
+  in serial: `jupyter nbconvert --to notebook --execute…'
+source: doc/source/tutorials/workflows/data_reuse/uncollided/uncollided.ipynb
+opensn_commit: 2fd4a19ceade4f8da581a5029c68f474d3333ccb
+script: uncollided.py.j2
+generated_from: workflows/data_reuse/uncollided/uncollided.ipynb
+num_procs: 1
+notes: 'Generated from the OpenSn tutorial workflows/data_reuse/uncollided/uncollided.ipynb
+  at the pinned commit. Do not edit
+
+  by hand: regenerate with `autoopensn scenarios --rebuild`, or the edit is lost.
+
+
+  Rendering this template with every parameter at its default reproduces the
+
+  tutorial''s script character for character, which the generator verifies before
+
+  writing and the test suite re-checks on every run.
+
+
+  29 literal(s) in the script were turned into parameters. 0 were left
+
+  as constants because their notation could not be reproduced exactly, which is
+
+  the conservative direction: a knob that corrupts the script is worse than a
+
+  constant.
+
+
+  A parameter whose provenance is `inferred` has a range scaled from the value the
+
+  tutorial itself uses. That is a guard against an absurd study, not a limit the
+
+  code enforces, and it is the first thing to widen when a legitimate study is
+
+  rejected.
+
+  '
+observables:
+- sweeps
+- iterations
+- wall_time
+- balance_residual
+- total_scalar_flux_at_0_024_0_016_0_008
+- total_scalar_flux_integral
+parameters:
+  sigma_t:
+    group: materials
+    type: float
+    default: 0.8
+    provenance: physics
+    description: Keyword argument sigma_t of CreateSimpleOneGroup. Range from the
+      quantity (a total cross section cannot be negative).
+    minimum: 0.0
+  c:
+    group: materials
+    type: float
+    default: 0.45
+    provenance: physics
+    description: 'From the tutorial: The problem is intentionally simple: - single
+      energy group, - single material, - single point source, - serial uncollided
+      generation followed by a collided solve. Range from the quantity (scattering
+      ratio; above 1 the medium multiplies).'
+    minimum: 0.0
+    maximum: 1.0
+  xmin:
+    group: mesh
+    type: float
+    default: -0.001
+    provenance: inferred
+    description: Keyword argument xmin of RPPLogicalVolume. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: -10.0
+    maximum: 10.0
+  xmax:
+    group: mesh
+    type: float
+    default: 0.033
+    provenance: inferred
+    description: Keyword argument xmax of RPPLogicalVolume. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 100.0
+  ymin:
+    group: mesh
+    type: float
+    default: -0.001
+    provenance: inferred
+    description: Keyword argument ymin of RPPLogicalVolume. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: -10.0
+    maximum: 10.0
+  ymax:
+    group: mesh
+    type: float
+    default: 0.033
+    provenance: inferred
+    description: Keyword argument ymax of RPPLogicalVolume. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 100.0
+  zmin:
+    group: mesh
+    type: float
+    default: -0.001
+    provenance: inferred
+    description: Keyword argument zmin of RPPLogicalVolume. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: -10.0
+    maximum: 10.0
+  zmax:
+    group: mesh
+    type: float
+    default: 0.033
+    provenance: inferred
+    description: Keyword argument zmax of RPPLogicalVolume. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 100.0
+  exist_ok:
+    group: misc
+    type: bool
+    default: true
+    provenance: inferred
+    description: Keyword argument exist_ok of mkdir. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  newline:
+    group: misc
+    type: str
+    default: ''
+    provenance: inferred
+    description: Keyword argument newline of open. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  num_groups:
+    group: problem
+    type: int
+    default: 1
+    provenance: opensn
+    description: Keyword argument num_groups of UncollidedProblem. Range from OpenSn
+      itself (energy group count).
+    minimum: 1
+    maximum: 10000
+  groups_from_to:
+    group: misc
+    type: int_list
+    default:
+    - 0
+    - 0
+    provenance: inferred
+    description: Entry 'groups_from_to' of the groupset block. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 1000
+    length: 2
+  xs_map_block_ids:
+    group: materials
+    type: int_list
+    default:
+    - 0
+    provenance: inferred
+    description: Entry 'ids' of the xs_map block. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 1000
+    length: 1
+  strength:
+    group: source
+    type: float_list
+    default:
+    - 1.0
+    provenance: inferred
+    description: Keyword argument strength of PointSource. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 10000.0
+    length: 1
+  scattering_order:
+    group: quadrature
+    type: int
+    default: 0
+    provenance: opensn
+    description: Keyword argument scattering_order of UncollidedProblem. Range from
+      OpenSn itself (moment order).
+    minimum: 0
+    maximum: 8
+  progress_interval:
+    group: misc
+    type: int
+    default: 25
+    provenance: inferred
+    description: Keyword argument progress_interval of UncollidedSolver. Range is
+      a guard scaled from the tutorial's own value, not a code limit; widen it by
+      hand if a study needs more.
+    minimum: 0
+    maximum: 100000.0
+  analytic_exclusion_radius:
+    group: misc
+    type: float
+    default: 0.008
+    provenance: inferred
+    description: Script variable analytic_exclusion_radius. Range is a guard scaled
+      from the tutorial's own value, not a code limit; widen it by hand if a study
+      needs more.
+    minimum: 0
+    maximum: 10.0
+  n_polar:
+    group: quadrature
+    type: int
+    default: 2
+    provenance: opensn
+    description: Keyword argument n_polar of GLCProductQuadrature3DXYZ. Range from
+      OpenSn itself (polar ordinates; must be even).
+    minimum: 2
+    maximum: 1024
+  n_azimuthal:
+    group: quadrature
+    type: int
+    default: 16
+    provenance: opensn
+    description: Keyword argument n_azimuthal of GLCProductQuadrature3DXYZ. Range
+      from OpenSn itself (azimuthal ordinates; must be even).
+    minimum: 2
+    maximum: 1024
+  glcproduct_quadrature3_dxyz_scattering_order:
+    group: quadrature
+    type: int
+    default: 0
+    provenance: inferred
+    description: Keyword argument order of GLCProductQuadrature3DXYZ. Range is a guard
+      scaled from the tutorial's own value, not a code limit; widen it by hand if
+      a study needs more.
+    minimum: 0
+    maximum: 1000
+  discrete_ordinates_problem_num_groups:
+    group: problem
+    type: int
+    default: 1
+    provenance: inferred
+    description: Keyword argument groups of DiscreteOrdinatesProblem. Range is a guard
+      scaled from the tutorial's own value, not a code limit; widen it by hand if
+      a study needs more.
+    minimum: 0
+    maximum: 10000.0
+  groupset_groups_from_to:
+    group: misc
+    type: int_list
+    default:
+    - 0
+    - 0
+    provenance: inferred
+    description: Entry 'to' of the groupset block. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 1000
+    length: 2
+  angle_aggregation_type:
+    group: misc
+    type: str
+    default: single
+    provenance: inferred
+    description: Entry 'angle_aggregation_type' of the groupset block. Range is a
+      guard scaled from the tutorial's own value, not a code limit; widen it by hand
+      if a study needs more.
+  inner_linear_method:
+    group: solver
+    type: str
+    default: petsc_gmres
+    provenance: opensn
+    description: Entry 'inner_linear_method' of the groupset block. Range from OpenSn
+      itself (allowable list from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    choices:
+    - classic_richardson
+    - petsc_richardson
+    - petsc_gmres
+    - petsc_bicgstab
+  gmres_restart_interval:
+    group: solver
+    type: int
+    default: 30
+    provenance: opensn
+    description: Entry 'gmres_restart_interval' of the groupset block. Range from
+      OpenSn itself (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1
+    maximum: 1000
+  l_abs_tol:
+    group: solver
+    type: float
+    default: 1.0e-08
+    provenance: opensn
+    description: Entry 'l_abs_tol' of the groupset block. Range from OpenSn itself
+      (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1.0e-18
+    maximum: 0.01
+  l_max_its:
+    group: solver
+    type: int
+    default: 200
+    provenance: opensn
+    description: Entry 'l_max_its' of the groupset block. Range from OpenSn itself
+      (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1
+    maximum: 100000
+  xs_map_block_ids_2:
+    group: materials
+    type: int_list
+    default:
+    - 0
+    provenance: inferred
+    description: Entry '2' of the xs_map block. Range is a guard scaled from the tutorial's
+      own value, not a code limit; widen it by hand if a study needs more.
+    minimum: 0
+    maximum: 1000
+    length: 1
+  compute_balance:
+    group: misc
+    type: bool
+    default: true
+    provenance: inferred
+    description: Keyword argument compute_balance of SteadyStateSourceSolver. Range
+      is a guard scaled from the tutorial's own value, not a code limit; widen it
+      by hand if a study needs more.
+gold:
+  case: uncollided.py
+  tests_json: doc/source/tutorials/workflows/data_reuse/uncollided/tests.json
+  keys:
+    'Total scalar flux at (0.024, 0.016, 0.008):': total_scalar_flux_at_0_024_0_016_0_008
+    'Total scalar-flux integral:': total_scalar_flux_integral
+    'Balance residual:': balance_residual
+  values:
+    'Total scalar flux at (0.024, 0.016, 0.008):': 273.5814472835
+    'Total scalar-flux integral:': 0.0179889301255
+    'Balance residual:': 0.0
+  tolerances:
+    'Total scalar flux at (0.024, 0.016, 0.008):':
+      abs_tol: 0.0
+      rel_tol: 1.0e-08
+    'Total scalar-flux integral:':
+      abs_tol: 0.0
+      rel_tol: 1.0e-08
+    'Balance residual:':
+      abs_tol: 1.0e-12
+      rel_tol: 0.0

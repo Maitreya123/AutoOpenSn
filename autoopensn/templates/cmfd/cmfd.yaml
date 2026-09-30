@@ -1,0 +1,335 @@
+name: cmfd
+description: 'CMFD acceleration for k-eigenvalue problems. This tutorial demonstrates
+  how to add coarse-mesh finite-difference (CMFD) acceleration to a multigroup k-eigenvalue
+  transport solve. The runnable problem is intentionally small so the notebook finishes
+  quickly, but the CMFD setup mirrors the workflow used by larger production inputs.
+  The focus is the CMFD accelerator object: - when to use CMFD, - how to construct
+  `CMFDAcceleration`, - what the user-facing options mean, - which options to tune
+  first, - how to interpret the CMFD status lines, - what to do when CMFD skips a
+  correction or converges slowly. The mesh, cross sections, quadrature,…'
+source: doc/source/tutorials/problems/eigenvalue/cmfd.ipynb
+opensn_commit: 2fd4a19ceade4f8da581a5029c68f474d3333ccb
+script: cmfd.py.j2
+generated_from: problems/eigenvalue/cmfd.ipynb
+num_procs: 1
+notes: 'Generated from the OpenSn tutorial problems/eigenvalue/cmfd.ipynb at the pinned
+  commit. Do not edit
+
+  by hand: regenerate with `autoopensn scenarios --rebuild`, or the edit is lost.
+
+
+  Rendering this template with every parameter at its default reproduces the
+
+  tutorial''s script character for character, which the generator verifies before
+
+  writing and the test suite re-checks on every run.
+
+
+  30 literal(s) in the script were turned into parameters. 0 were left
+
+  as constants because their notation could not be reproduced exactly, which is
+
+  the conservative direction: a knob that corrupts the script is worse than a
+
+  constant.
+
+
+  A parameter whose provenance is `inferred` has a range scaled from the value the
+
+  tutorial itself uses. That is a guard against an absurd study, not a limit the
+
+  code enforces, and it is the first thing to widen when a legitimate study is
+
+  rejected.
+
+  '
+observables:
+- sweeps
+- iterations
+- wall_time
+- cmfd_k_eigenvalue
+parameters:
+  encoding:
+    group: misc
+    type: str
+    default: utf-8
+    provenance: inferred
+    description: Keyword argument encoding of open. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  scattering_order:
+    group: quadrature
+    type: int
+    default: 3
+    provenance: opensn
+    description: Script variable scattering_order. Range from OpenSn itself (moment
+      order).
+    minimum: 0
+    maximum: 8
+  n_polar:
+    group: quadrature
+    type: int
+    default: 2
+    provenance: opensn
+    description: Script variable n_polar. Range from OpenSn itself (polar ordinates;
+      must be even).
+    minimum: 2
+    maximum: 1024
+  n_azimuthal:
+    group: quadrature
+    type: int
+    default: 4
+    provenance: opensn
+    description: Script variable n_azimuthal. Range from OpenSn itself (azimuthal
+      ordinates; must be even).
+    minimum: 2
+    maximum: 1024
+  inner_linear_method:
+    group: solver
+    type: str
+    default: petsc_gmres
+    provenance: opensn
+    description: Entry 'inner_linear_method' of the groupset block. Range from OpenSn
+      itself (allowable list from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    choices:
+    - classic_richardson
+    - petsc_richardson
+    - petsc_gmres
+    - petsc_bicgstab
+  l_abs_tol:
+    group: solver
+    type: float
+    default: 1.0e-07
+    provenance: opensn
+    description: Entry 'l_abs_tol' of the groupset block. Range from OpenSn itself
+      (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1.0e-18
+    maximum: 0.01
+  l_max_its:
+    group: solver
+    type: int
+    default: 300
+    provenance: opensn
+    description: Entry 'l_max_its' of the groupset block. Range from OpenSn itself
+      (lower bound from modules/linear_boltzmann_solvers/lbs_problem/groupset/lbs_groupset.cc).
+    minimum: 1
+    maximum: 100000
+  xmin_name:
+    group: mesh
+    type: str
+    default: xmin
+    provenance: inferred
+    description: Entry 'xmin_name' of the xmin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  xmin_type:
+    group: mesh
+    type: str
+    default: reflecting
+    provenance: inferred
+    description: Entry 'xmin_type' of the xmin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  xmax_name:
+    group: mesh
+    type: str
+    default: xmax
+    provenance: inferred
+    description: Entry 'xmax_name' of the xmax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  xmax_type:
+    group: mesh
+    type: str
+    default: reflecting
+    provenance: inferred
+    description: Entry 'xmax_type' of the xmax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  ymin_name:
+    group: mesh
+    type: str
+    default: ymin
+    provenance: inferred
+    description: Entry 'ymin_name' of the ymin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  ymin_type:
+    group: mesh
+    type: str
+    default: reflecting
+    provenance: inferred
+    description: Entry 'ymin_type' of the ymin block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  ymax_name:
+    group: mesh
+    type: str
+    default: ymax
+    provenance: inferred
+    description: Entry 'ymax_name' of the ymax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  ymax_type:
+    group: mesh
+    type: str
+    default: reflecting
+    provenance: inferred
+    description: Entry 'ymax_type' of the ymax block. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+  verbose_inner_iterations:
+    group: solver
+    type: bool
+    default: false
+    provenance: inferred
+    description: 'From the tutorial: `verbose_inner_iterations=False` keeps the tutorial
+      output short. Range is a guard scaled from the tutorial''s own value, not a
+      code limit; widen it by hand if a study needs more.'
+  verbose_outer_iterations:
+    group: solver
+    type: bool
+    default: true
+    provenance: inferred
+    description: 'From the tutorial: In this notebook, `verbose_outer_iterations=True`
+      is useful because it prints the PI status and the CMFD convergence check. Range
+      is a guard scaled from the tutorial''s own value, not a code limit; widen it
+      by hand if a study needs more.'
+  use_precursors:
+    group: misc
+    type: bool
+    default: false
+    provenance: inferred
+    description: Script variable use_precursors. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  power_default_kappa:
+    group: misc
+    type: float
+    default: 1.0
+    provenance: inferred
+    description: Script variable power_default_kappa. Range is a guard scaled from
+      the tutorial's own value, not a code limit; widen it by hand if a study needs
+      more.
+    minimum: 0
+    maximum: 10000.0
+  save_angular_flux:
+    group: misc
+    type: bool
+    default: false
+    provenance: inferred
+    description: Script variable save_angular_flux. Range is a guard scaled from the
+      tutorial's own value, not a code limit; widen it by hand if a study needs more.
+  k_tol:
+    group: solver
+    type: float
+    default: 0.0001
+    provenance: opensn
+    description: 'From the tutorial: In large 3D cases, `10*k_tol` may be too strict
+      for a fixed tolerance; this is exactly the situation the self-calibrating check
+      in point 2 is meant to avoid having to hand-tune. Range from OpenSn itself (user
+      guide range 1e-8 to 1e-10).'
+    minimum: 1.0e-16
+    maximum: 0.01
+  target_coarse_groups:
+    group: misc
+    type: int
+    default: 16
+    provenance: inferred
+    description: 'From the tutorial: Treat `aggregation_size`, target coarse groups,
+      and `relaxation` as the first production tuning knobs. Range is a guard scaled
+      from the tutorial''s own value, not a code limit; widen it by hand if a study
+      needs more.'
+    minimum: 0
+    maximum: 100000.0
+  current_closure:
+    group: misc
+    type: str
+    default: auto
+    provenance: inferred
+    description: 'From the tutorial: Try `current_closure="net"` if auto selected
+      partial current too aggressively. Range is a guard scaled from the tutorial''s
+      own value, not a code limit; widen it by hand if a study needs more.'
+  coarse_mesh:
+    group: mesh
+    type: str
+    default: local_aggregation
+    provenance: inferred
+    description: 'From the tutorial: The important CMFD point is that the default
+      coarse mesh used below is `coarse_mesh="local_aggregation"`: each rank aggregates
+      its own fine cells into local CMFD coarse cells. Range is a guard scaled from
+      the tutorial''s own value, not a code limit; widen it by hand if a study needs
+      more.'
+  aggregation_size:
+    group: misc
+    type: int
+    default: 8
+    provenance: inferred
+    description: 'From the tutorial: `aggregation_size` : Target fine cells per spatial
+      CMFD coarse cell. Range is a guard scaled from the tutorial''s own value, not
+      a code limit; widen it by hand if a study needs more.'
+    minimum: 0
+    maximum: 10000.0
+  relaxation:
+    group: misc
+    type: float
+    default: 0.5
+    provenance: inferred
+    description: 'From the tutorial: `relaxation` : Requested strength of the scalar-flux
+      correction. Range is a guard scaled from the tutorial''s own value, not a code
+      limit; widen it by hand if a study needs more.'
+    minimum: 0
+    maximum: 1000.0
+  update_wgs_max_its:
+    group: solver
+    type: int
+    default: 1
+    provenance: inferred
+    description: 'From the tutorial: In the CMFD workflow, the number of WGS updates
+      between CMFD corrections is controlled by `CMFDAcceleration(update_wgs_max_its=...)`.
+      Range is a guard scaled from the tutorial''s own value, not a code limit; widen
+      it by hand if a study needs more.'
+    minimum: 0
+    maximum: 10000.0
+  update_wgs_abs_tol:
+    group: misc
+    type: float
+    default: 1.0e-12
+    provenance: inferred
+    description: 'From the tutorial: `update_wgs_abs_tol=1.0e-12` : With `update_wgs_max_its=1`,
+      this tolerance usually does not stop the WGS solve; the iteration limit does.
+      Range is a guard scaled from the tutorial''s own value, not a code limit; widen
+      it by hand if a study needs more.'
+    minimum: 0
+    maximum: 1.0e-08
+  balance_residual_tolerance:
+    group: solver
+    type: float
+    default: 0.1
+    provenance: inferred
+    description: 'From the tutorial: `balance_residual_tolerance` : Additional CMFD
+      convergence check based on restricted transport-current balance. Range is a
+      guard scaled from the tutorial''s own value, not a code limit; widen it by hand
+      if a study needs more.'
+    minimum: 0
+    maximum: 1000.0
+  coarse_solver_policy:
+    group: misc
+    type: str
+    default: direct
+    provenance: inferred
+    description: 'From the tutorial: `coarse_solver_policy="direct"` : Direct coarse
+      solve. Range is a guard scaled from the tutorial''s own value, not a code limit;
+      widen it by hand if a study needs more.'
+data_files:
+- mgxs_2B_one_eighth_SHEM-361.h5
+- pincell.obj
+gold:
+  case: cmfd.py
+  tests_json: doc/source/tutorials/problems/eigenvalue/tests.json
+  keys:
+    CMFD k-eigenvalue =: cmfd_k_eigenvalue
+  values:
+    CMFD k-eigenvalue =: 1.15663057
+  tolerances:
+    CMFD k-eigenvalue =:
+      abs_tol: 1.0e-06
+      rel_tol: 0.0

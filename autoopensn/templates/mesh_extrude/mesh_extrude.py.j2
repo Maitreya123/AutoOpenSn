@@ -1,0 +1,39 @@
+import os
+from mpi4py import MPI
+rank = MPI.COMM_WORLD.rank
+
+
+from pyopensn.mesh import FromFileMeshGenerator, ExtruderMeshGenerator, PETScGraphPartitioner
+from pyopensn.context import UseColor, Finalize
+
+UseColor(False)
+
+meshgen = ExtruderMeshGenerator(
+    inputs=[
+        FromFileMeshGenerator(
+            filename={{ from_file_mesh_generator_filename | lit("dq") }},
+        )
+    ],
+    layers=[{"z": {{ z | lit("plain") }}, "n": 2},
+            {"z": {{ z_2 | lit("plain") }}, "n": 3},
+            ],  # layers
+    partitioner=PETScGraphPartitioner(),
+)
+grid = meshgen.Execute()
+
+# Export
+grid.ExportToPVTU("Extruded_mesh_only")
+
+n_glob_cells = grid.GetGlobalNumberOfCells()
+if rank == 0:
+    print(f"Number of cells = {n_glob_cells}")
+
+from IPython import get_ipython
+
+def finalize_env():
+    Finalize()
+    MPI.Finalize()
+
+ipython_instance = get_ipython()
+if ipython_instance is not None:
+    ipython_instance.events.register("post_execute", finalize_env)

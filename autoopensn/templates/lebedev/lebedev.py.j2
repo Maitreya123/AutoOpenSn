@@ -1,0 +1,134 @@
+import os
+import numpy as np
+from mpi4py import MPI
+
+
+from pyopensn.aquad import LebedevQuadrature3DXYZ
+from pyopensn.context import UseColor, Finalize
+
+UseColor(False)
+
+# Create a 3D Lebedev angular quadrature of order 5.
+pquad = LebedevQuadrature3DXYZ(quadrature_order={{ quadrature_order | lit("int") }}, scattering_order={{ scattering_order | lit("int") }})
+
+vec3_omegas = pquad.omegas
+
+n_directions = len(vec3_omegas)
+print('number of directions =',n_directions)
+omegas = np.zeros((n_directions,3))
+
+for d in range(n_directions):
+    omegas[d,:] = [vec3_omegas[d].x, vec3_omegas[d].y, vec3_omegas[d].z]
+
+dim = {{ dim | lit("int") }}
+
+import matplotlib.pyplot as plt
+from matplotlib.patches import FancyArrowPatch
+from mpl_toolkits.mplot3d import proj3d
+import itertools
+
+colors = itertools.cycle(["r", "g", "b", "k", "m", "c", "y", "crimson"])
+
+# Create figure with options
+fig = plt.figure(dpi={{ dpi | lit("int") }})
+ax = fig.add_subplot(111, projection={{ projection | lit("sq") }})
+
+# Transparent sphere data
+u = np.linspace(0, 2 * np.pi, 100)
+v = np.linspace(0, np.pi, 100)
+x = np.outer(np.cos(u), np.sin(v))
+y = np.outer(np.sin(u), np.sin(v))
+z = np.outer(np.ones(np.size(u)), np.cos(v))
+# Plot the surface
+ax.plot_surface(x, y, z, color={{ color | lit("sq") }}, alpha={{ alpha | lit("plain") }})
+
+# Create a custom 3D arrow class
+class Arrow3D(FancyArrowPatch):
+    def __init__(self, xs, ys, zs, *args, **kwargs):
+        # Initialize with dummy 2D points
+        super().__init__((0, 0), (0, 0), *args, **kwargs)
+        self._verts3d = xs, ys, zs
+
+    def do_3d_projection(self, renderer=None):
+        # Project 3D coordinates to 2D using the axes projection matrix
+        xs3d, ys3d, zs3d = self._verts3d
+        xs, ys, zs = proj3d.proj_transform(xs3d, ys3d, zs3d, self.axes.get_proj())
+        self.set_positions((xs[0], ys[0]), (xs[1], ys[1]))
+        # Return a numerical depth value (for example, the mean of the projected z-values)
+        return np.mean(zs)
+
+    def draw(self, renderer):
+        # Perform projection using the axes' projection matrix
+        xs3d, ys3d, zs3d = self._verts3d
+        xs, ys, zs = proj3d.proj_transform(xs3d, ys3d, zs3d, self.axes.get_proj())
+        self.set_positions((xs[0], ys[0]), (xs[1], ys[1]))
+        return super().draw(renderer)
+
+
+start = {{ start | lit("plain") }}
+
+# Create axes arrows
+a = Arrow3D(
+    [start, 1.1],
+    [0, 0],
+    [0, 0],
+    mutation_scale={{ mutation_scale | lit("int") }},
+    lw={{ lw | lit("plain") }},
+    arrowstyle={{ arrowstyle | lit("dq") }},
+    color={{ arrow3_d_color | lit("dq") }},
+)
+ax.add_artist(a)
+
+a = Arrow3D(
+    [0, 0],
+    [start, 1.1],
+    [0, 0],
+    mutation_scale={{ arrow3_d_mutation_scale | lit("int") }},
+    lw={{ arrow3_d_lw | lit("plain") }},
+    arrowstyle={{ arrow3_d_arrowstyle | lit("dq") }},
+    color={{ arrow3_d_color_2 | lit("dq") }},
+)
+ax.add_artist(a)
+
+a = Arrow3D(
+    [0, 0],
+    [0, 0],
+    [start, 1.1],
+    mutation_scale={{ arrow3_d_mutation_scale_2 | lit("int") }},
+    lw={{ arrow3_d_lw_2 | lit("plain") }},
+    arrowstyle={{ arrow3_d_arrowstyle_2 | lit("dq") }},
+    color={{ arrow3_d_color_3 | lit("dq") }},
+)
+ax.add_artist(a)
+
+# Plot quadrature directions by octant
+n_octants = int(2 ** dim)
+octant_colors = [next(colors) for _ in range(n_octants)]
+for d in range(n_directions):
+    om = omegas[d, :]
+    # Determine octant index from signs of coordinates
+    oc = (0 if om[0] >= 0 else 4) + (0 if om[1] >= 0 else 2) + (0 if om[2] >= 0 else 1)
+    ax.plot3D([0, om[0]], [0, om[1]], [0, om[2]], c=octant_colors[oc], linewidth={{ linewidth | lit("plain") }})
+
+mu = omegas[:, -1]
+polar_level = np.unique(mu)
+for r in polar_level:
+    x = np.sqrt(1 - r ** 2) * np.cos(u)
+    y = np.sqrt(1 - r ** 2) * np.sin(u)
+    z = r * np.ones_like(u)
+    ax.plot3D(x, y, z, 'grey', linestyle={{ linestyle | lit("dq") }}, linewidth={{ plot3_d_linewidth | lit("plain") }})
+
+ax.view_init(30, 70)
+
+# uncomment this line for interactive plot
+# plt.show()
+
+from IPython import get_ipython
+
+def finalize_env():
+    Finalize()
+    MPI.Finalize()
+
+ipython_instance = get_ipython()
+if ipython_instance is not None:
+    ipython_instance.events.register("post_execute", finalize_env)

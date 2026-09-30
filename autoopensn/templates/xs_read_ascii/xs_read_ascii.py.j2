@@ -1,0 +1,32 @@
+from pathlib import Path
+
+xs_path = Path("xs_2g.xs")
+print(xs_path.read_text())
+
+import numpy as np
+from mpi4py import MPI
+
+from pyopensn.context import Finalize, UseColor
+from pyopensn.xs import MultiGroupXS
+
+UseColor(False)
+
+xs_mat = MultiGroupXS()
+xs_mat.LoadFromOpenSn(str(xs_path))
+
+print("num_groups       =", xs_mat.num_groups)
+print("scattering_order =", xs_mat.scattering_order)
+print("sigma_t          =", list(xs_mat.sigma_t))
+print("sigma_a          =", np.asarray(xs_mat.sigma_a))
+
+from IPython import get_ipython
+
+
+def finalize_env():
+    Finalize()
+    MPI.Finalize()
+
+
+ipython_instance = get_ipython()
+if ipython_instance is not None:
+    ipython_instance.events.register("post_execute", finalize_env)

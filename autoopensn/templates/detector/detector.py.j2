@@ -1,0 +1,332 @@
+from mpi4py import MPI
+size = MPI.COMM_WORLD.size
+rank = MPI.COMM_WORLD.rank
+barrier = MPI.COMM_WORLD.barrier
+
+if rank == 0:
+    print(f"Running the LBS detector example with {size} MPI processors.")
+
+import os
+import math
+import numpy as np
+
+
+from pyopensn.mesh import OrthogonalMeshGenerator
+from pyopensn.xs import MultiGroupXS
+from pyopensn.source import PointSource, VolumetricSource
+from pyopensn.aquad import GLProductQuadrature1DSlab
+from pyopensn.solver import DiscreteOrdinatesProblem, SteadyStateSourceSolver
+from pyopensn.math import Vector3
+from pyopensn.fieldfunc import FieldFunctionInterpolationVolume, \
+                               FieldFunctionInterpolationLine, \
+                               FieldFunctionGridBased
+from pyopensn.logvol import RPPLogicalVolume
+from pyopensn.context import UseColor, Finalize
+
+# Source Interfaces
+src = {{ src | lit("list:plain") }}
+d_src = {{ d_src | lit("list:int") }}
+
+# Detector Interfaces
+det = {{ det | lit("list:plain") }}
+d_det = {{ d_det | lit("list:int") }}
+
+z  = [0.0, *src, *det, 25.0]
+dz = [4, *d_src, 10, *d_det, 4]
+
+ref = {{ ref | lit("int") }}
+nodesz = np.concatenate([np.linspace(z[i], z[i+1], dz[i]*ref+1)[1:] if i>0 else np.linspace(z[i], z[i+1], dz[i]*ref+1) 
+                         for i in range(len(z)-1)]).tolist()
+
+meshgen = OrthogonalMeshGenerator(node_sets=[nodesz])
+grid = meshgen.Execute()
+
+grid.SetUniformBlockID(0)
+
+# Detector Volume
+det_hdpe = RPPLogicalVolume(
+            infx=True,
+            infy=True,
+            zmin=det[0], zmax=det[-1],
+)
+grid.SetBlockIDFromLogicalVolume(det_hdpe, 1, True)
+
+det_sleeve = RPPLogicalVolume(
+            infx=True,
+            infy=True,
+            zmin=det[1], zmax=det[-2],
+)
+grid.SetBlockIDFromLogicalVolume(det_sleeve, 2, True)
+
+det_he3 = RPPLogicalVolume(
+            infx=True,
+            infy=True,
+            zmin=det[2], zmax=det[-3],
+)
+grid.SetBlockIDFromLogicalVolume(det_he3, 3, True)
+
+# Src Volume
+src_casing = RPPLogicalVolume(
+            infx=True,
+            infy=True,
+            zmin=src[0], zmax=src[-1],
+)
+grid.SetBlockIDFromLogicalVolume(src_casing, 2, True)
+
+src_cf = RPPLogicalVolume(
+            infx=True,
+            infy=True,
+            zmin=src[1], zmax=src[-2],
+)
+grid.SetBlockIDFromLogicalVolume(src_cf, 4, True)
+
+xs_dir = {{ xs_dir | lit("dq") }}
+xs_air = MultiGroupXS()
+xs_air.LoadFromOpenSn(xs_dir+"/Air.cxs")
+
+xs_hdpe = MultiGroupXS()
+xs_hdpe.LoadFromOpenSn(xs_dir+"/HDPE.cxs")
+
+xs_steel = MultiGroupXS()
+xs_steel.LoadFromOpenSn(xs_dir+"/SS_316.cxs")
+
+xs_he3 = MultiGroupXS()
+xs_he3.LoadFromOpenSn(xs_dir+"/He3.cxs")
+
+xs_cf = MultiGroupXS()
+xs_cf.LoadFromOpenSn(xs_dir+"/Cf252.cxs")
+
+xsecs = [{"block_ids": {{ xs_map_block_ids | lit("list:int") }}, "xs": xs_air},
+         {"block_ids": {{ xs_map_block_ids_2 | lit("list:int") }}, "xs": xs_hdpe},
+         {"block_ids": {{ xs_map_block_ids_3 | lit("list:int") }}, "xs": xs_steel},
+         {"block_ids": {{ xs_map_block_ids_4 | lit("list:int") }}, "xs": xs_he3},
+         {"block_ids": {{ xs_map_block_ids_5 | lit("list:int") }}, "xs": xs_cf}]
+
+pquad = GLProductQuadrature1DSlab(n_polar={{ n_polar | lit("int") }}, 
+                                  scattering_order={{ scattering_order | lit("int") }})
+
+num_groups = {{ num_groups | lit("int") }}
+grpsets = [
+    {
+        "groups_from_to": (0, num_groups-1),
+        "angular_quadrature": pquad,
+        "inner_linear_method": {{ inner_linear_method | lit("dq") }},
+        "l_abs_tol": {{ l_abs_tol | lit("sci") }},
+        "l_max_its": {{ l_max_its | lit("int") }},
+        "gmres_restart_interval": {{ gmres_restart_interval | lit("int") }},
+    },
+]
+
+groups = np.flip([1.00000E-11, 5.00000E-09, 1.00000E-08, 1.50000E-08, 2.00000E-08, 
+                  2.50000E-08, 3.00000E-08, 3.50000E-08, 4.20000E-08, 5.00000E-08, 
+                  5.80000E-08, 6.70000E-08, 8.00000E-08, 1.00000E-07, 1.40000E-07, 
+                  1.80000E-07, 2.20000E-07, 2.50000E-07, 2.80000E-07, 3.00000E-07, 
+                  3.20000E-07, 3.50000E-07, 4.00000E-07, 5.00000E-07, 6.25000E-07, 
+                  7.80000E-07, 8.50000E-07, 9.10000E-07, 9.50000E-07, 9.72000E-07, 
+                  9.96000E-07, 1.02000E-06, 1.04500E-06, 1.07100E-06, 1.09700E-06, 
+                  1.12300E-06, 1.15000E-06, 1.30000E-06, 1.50000E-06, 2.10000E-06, 
+                  2.60000E-06, 3.30000E-06, 4.00000E-06, 9.87700E-06, 1.59680E-05, 
+                  2.77000E-05, 4.80520E-05, 7.55014E-05, 1.48729E-04, 3.67263E-04, 
+                  9.06899E-04, 1.42510E-03, 2.23945E-03, 3.51910E-03, 5.53000E-03, 
+                  9.11800E-03, 1.50300E-02, 2.47800E-02, 4.08500E-02, 6.73400E-02, 
+                  1.11000E-01, 1.83000E-01, 3.02500E-01, 5.00000E-01, 8.21000E-01, 
+                  1.35300E+00, 2.23100E+00, 3.67900E+00, 6.06550E+00, 1.00000E+01])
+group_width = -np.diff(groups)
+dE = groups[0] - groups[-1]
+dL = src[-2] - src[1]
+Q = (group_width / dE / dL).tolist()
+
+vol_src = VolumetricSource(block_ids={{ volumetric_source_block_ids | lit("list:int") }}, group_strength=Q)
+
+phys = DiscreteOrdinatesProblem(
+    mesh=grid,
+    num_groups=num_groups,
+    groupsets=grpsets,
+    xs_map=xsecs,
+    volumetric_sources = [vol_src],
+    boundary_conditions = [
+        {"name": {{ zmin_name | lit("dq") }}, "type": {{ zmin_type | lit("dq") }}},
+        {"name": {{ zmax_name | lit("dq") }}, "type": {{ zmax_type | lit("dq") }}}
+    ],
+    # Needed because this tutorial later works with angular fluxes.
+    options = {"save_angular_flux": {{ save_angular_flux | lit("bool") }}},
+)
+
+ss_solver = SteadyStateSourceSolver(problem=phys)
+ss_solver.Initialize()
+ss_solver.Execute()
+
+fflist = phys.GetScalarFluxFieldFunction(only_scalar_flux={{ only_scalar_flux | lit("bool") }})
+
+fields = []
+flux = []
+for g in range(num_groups):
+    ffvol = FieldFunctionInterpolationVolume()
+    ffvol.SetOperationType("sum")  # OP_SUM operation
+    ffvol.SetLogicalVolume(det_he3)
+    ffvol.AddFieldFunction(fflist[g][0])
+    ffvol.Execute()
+    phi_g = ffvol.GetValue()
+    flux.append(phi_g)
+
+    fields.append(fflist[g][0])
+
+sig_a = np.array(xs_he3.sigma_a)
+resp = sig_a * flux
+
+import matplotlib.pyplot as plt
+
+fig = plt.figure(figsize=(22,16))
+axs = []
+if rank == 0:
+    emid = (groups[:-1]+groups[1:])/2
+
+    # Flux spectrum
+    flux_spec = flux / group_width
+
+    axs.append(fig.add_subplot(221))
+    axs[0].loglog(emid, flux_spec, drawstyle={{ drawstyle | lit("sq") }})
+    axs[0].set_xlabel("Energy (MeV)", fontsize={{ fontsize | lit("int") }})
+    axs[0].set_ylabel(r"$\phi^g(E)$", fontsize={{ set_ylabel_fontsize | lit("int") }})
+    axs[0].set_title("Flux Spectrum", fontsize={{ set_title_fontsize | lit("int") }})
+    axs[0].tick_params(axis={{ axis | lit("sq") }}, which={{ which | lit("sq") }}, labelsize={{ labelsize | lit("int") }})
+    axs[0].grid()
+
+    # Flux spectrum per unit lethargy
+    flux_leth = flux_spec * emid
+
+    axs.append(fig.add_subplot(222))
+    axs[1].loglog(emid, flux_leth, drawstyle={{ loglog_drawstyle | lit("sq") }})
+    axs[1].set_xlabel("Energy (MeV)", fontsize={{ set_xlabel_fontsize | lit("int") }})
+    axs[1].set_ylabel(r"$\phi^g(u)$", fontsize={{ set_ylabel_fontsize_2 | lit("int") }})
+    axs[1].set_title("Flux Spectrum per unit lethargy", fontsize={{ set_title_fontsize_2 | lit("int") }})
+    axs[1].tick_params(axis={{ tick_params_axis | lit("sq") }}, which={{ tick_params_which | lit("sq") }}, labelsize={{ tick_params_labelsize | lit("int") }})
+    axs[1].grid()
+
+
+    # Absorption spectrum
+    resp_spec = resp / group_width
+
+    axs.append(fig.add_subplot(223))
+    axs[2].loglog(emid, resp_spec,  drawstyle={{ loglog_drawstyle_2 | lit("sq") }})
+    axs[2].set_xlabel("Energy (MeV)", fontsize={{ set_xlabel_fontsize_2 | lit("int") }})
+    axs[2].set_ylabel(r"$\text{RR}^g(E)$", fontsize={{ set_ylabel_fontsize_3 | lit("int") }})
+    axs[2].set_title("Absorption Spectrum", fontsize={{ set_title_fontsize_3 | lit("int") }})
+    axs[2].tick_params(axis={{ tick_params_axis_2 | lit("sq") }}, which={{ tick_params_which_2 | lit("sq") }}, labelsize={{ tick_params_labelsize_2 | lit("int") }})
+    axs[2].grid()
+
+    # Absorption spectrum per unit lethargy
+    resp_leth = resp_spec * emid
+
+    axs.append(fig.add_subplot(224))
+    axs[3].loglog(emid, resp_leth, drawstyle={{ loglog_drawstyle_3 | lit("sq") }})
+    axs[3].set_xlabel("Energy (MeV)", fontsize={{ set_xlabel_fontsize_3 | lit("int") }})
+    axs[3].set_ylabel(r"$\text{RR}^g(u)$", fontsize={{ set_ylabel_fontsize_4 | lit("int") }})
+    axs[3].set_title("Absorption Spectrum per unit lethargy", fontsize={{ set_title_fontsize_4 | lit("int") }})
+    axs[3].tick_params(axis={{ tick_params_axis_3 | lit("sq") }}, which={{ tick_params_which_3 | lit("sq") }}, labelsize={{ tick_params_labelsize_3 | lit("int") }})
+    axs[3].grid()
+
+    print(f"{'Forward Total Flux :'} {np.sum(flux):.6e}")
+    print(f"{'Forward Total Response :'} {np.sum(resp):.6e}")
+
+FFGrid = FieldFunctionGridBased
+FFGrid.ExportMultipleToPVTU(fields, "Flux/detector")
+
+import csv
+from os import walk
+
+for g in range(num_groups):
+    # Linear Field Function
+    ffline = FieldFunctionInterpolationLine()
+    ffline.SetInitialPoint(Vector3(0.0, 0.0, z[0]))
+    ffline.SetFinalPoint(Vector3(0.0, 0.0, z[-1]))
+    ffline.SetNumberOfPoints(1000)
+    ffline.AddFieldFunction(fflist[g][0])
+    ffline.Execute()
+    ffline.ExportToCSV("Flux/detector")
+
+# Convert each CSV to a python dictionary
+def CSVToDict(filename):
+    data = {}
+    with open(filename, newline={{ newline | lit("dq") }}) as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            for key, value in row.items():
+                data.setdefault(key, []).append(float(value))
+    return data
+
+# Collect each groupwise flux distribution into a dictionary
+# Flux -> g001 -> {x,y,z,phi_g001_m00}
+#      -> g002 -> {x,y,z,phi_g002_m00}
+#      -> .... ->         ...
+#      -> g068 -> {x,y,z,phi_g068_m00}        
+Flux = {}
+for (dirpath, dirnames, filenames) in walk('Flux/'):
+   for filename in filenames:
+        if filename.split(".")[1] == "csv":
+            grp = filename.split('.')[0].split('_')[2]
+            key = "_".join(filename.split('.')[0].split('_')[1:])
+            fwd_dict = CSVToDict("Flux/"+filename)
+            Flux[grp] = CSVToDict("Flux/"+filename)
+
+if rank == 0:
+    # Plot of the flux distribution
+    z = Flux['g003']['z']
+    flux_g3 = Flux['g003']['phi_g003_m00']
+    flux_g52 = Flux['g052']['phi_g052_m00']
+    
+    plt.figure()
+    plt.semilogy(z, flux_g3, label={{ label | lit("dq") }})
+    plt.semilogy(z, flux_g52, label={{ semilogy_label | lit("dq") }})
+    plt.xlabel("Distance (cm)")
+    plt.ylabel(r"$\phi^g(z)$")
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+leakage = phys.ComputeLeakage(["zmin", "zmax"]) 
+lkg_zmin = leakage['zmin']
+lkg_zmax = leakage['zmax']
+
+fig = plt.figure(figsize=(22,8))
+axs = []
+if rank == 0:
+    # Leakage spectrum
+    axs.append(fig.add_subplot(121))
+    axs[0].loglog(emid, lkg_zmin/group_width, drawstyle={{ loglog_drawstyle_4 | lit("sq") }}, label={{ loglog_label | lit("dq") }})
+    axs[0].loglog(emid, lkg_zmax/group_width, drawstyle={{ loglog_drawstyle_5 | lit("sq") }}, label={{ loglog_label_2 | lit("dq") }})
+    axs[0].set_xlabel("Energy (MeV)", fontsize={{ set_xlabel_fontsize_4 | lit("int") }})
+    axs[0].set_ylabel(r"$\vec{j}^{g}(E)|_{\Gamma_{\text{+}}}$", fontsize={{ set_ylabel_fontsize_5 | lit("int") }})
+    axs[0].set_title("Leakage Spectrum", fontsize={{ set_title_fontsize_5 | lit("int") }})
+    axs[0].tick_params(axis={{ tick_params_axis_4 | lit("sq") }}, which={{ tick_params_which_4 | lit("sq") }}, labelsize={{ tick_params_labelsize_4 | lit("int") }})
+    axs[0].legend(fontsize={{ legend_fontsize | lit("int") }})
+    axs[0].grid()
+
+    # Leakage spectrum per unit lethargy
+    axs.append(fig.add_subplot(122))
+    axs[1].loglog(emid, lkg_zmin*emid/group_width, drawstyle={{ loglog_drawstyle_6 | lit("sq") }}, label={{ loglog_label_3 | lit("dq") }})
+    axs[1].loglog(emid, lkg_zmax*emid/group_width, drawstyle={{ loglog_drawstyle_7 | lit("sq") }}, label={{ loglog_label_4 | lit("dq") }})
+    axs[1].set_xlabel("Energy (MeV)", fontsize={{ set_xlabel_fontsize_5 | lit("int") }})
+    axs[1].set_ylabel(r"$\vec{j}^{g}(u)|_{\Gamma_{\text{+}}}$", fontsize={{ set_ylabel_fontsize_6 | lit("int") }})
+    axs[1].set_title("Leakage Spectrum per unit lethargy", fontsize={{ set_title_fontsize_6 | lit("int") }})
+    axs[1].tick_params(axis={{ tick_params_axis_5 | lit("sq") }}, which={{ tick_params_which_5 | lit("sq") }}, labelsize={{ tick_params_labelsize_5 | lit("int") }})
+    axs[1].legend(fontsize={{ legend_fontsize_2 | lit("int") }})
+    axs[1].grid()
+    
+    print(f"{'Total Leakage ZMin :'} {np.sum(lkg_zmin):.6e}")
+    print(f"{'Total Leakage ZMax :'} {np.sum(lkg_zmax):.6e}")
+    print(f"{'Total Leakage :'} {np.sum(lkg_zmin)+np.sum(lkg_zmax):.6e}")
+
+ss_solver = SteadyStateSourceSolver(problem=phys, compute_balance={{ compute_balance | lit("bool") }})
+
+from IPython import get_ipython
+
+def finalize_env():
+    Finalize()
+    MPI.Finalize()
+
+ipython_instance = get_ipython()
+if ipython_instance is not None:
+    ipython_instance.events.register("post_execute", finalize_env)
+
+os.system("rm -rf Data Flux Results")
