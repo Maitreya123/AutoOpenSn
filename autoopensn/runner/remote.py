@@ -69,6 +69,9 @@ CONNECT_TIMEOUT = 20
 """Seconds to wait for the SSH handshake. Distinct from the run timeout: a
 cluster that is down should say so in seconds, not hold a study for an hour."""
 
+TIMING_MARKER = "AUTOOPENSN_NODE_TIMING"
+"""Prefixes the start and end timestamps the node prints around ``mpiexec``."""
+
 PROBE_TIMEOUT = 4
 """Shorter still, for deciding *whether* to use the cluster at all. A firewall
 drops rather than refuses, so an unreachable host costs the full timeout, and
@@ -194,24 +197,43 @@ class RemoteRunner(Runner):
         ``set -eu`` so that a module that fails to load stops the run instead of
         letting ``mpiexec`` find the system Python and produce an import error
         that reads like a bug in the generated script.
+
+        The simulation is timed here, on the node, around ``mpiexec`` alone.
+        Timed from this side, the clock also ran through the SSH handshake, the
+        module loads and the copy back — two to four seconds of network noise
+        around a sub-second solve, which is what a "which setting is fastest"
+        table was then comparing. OpenSn's own ``Elapsed execution time`` line
+        would avoid the network too, but it is printed to a tenth of a second,
+        and at that resolution most cases of a fast study read the same.
+        The two timestamps go to stderr behind a marker, so stdout stays exactly
+        what OpenSn printed.
         """
         directory = self.remote_dir(request)
         preamble = self.module_preamble()
+        launch = " ".join(
+            (
+                shlex.quote(self.launcher),
+                "-n",
+                str(request.num_procs),
+                shlex.quote(self.python),
+                shlex.quote(request.script_path.name),
+            )
+        )
         return "\n".join(
             line
             for line in (
                 "set -eu",
                 preamble,
                 f"cd {shlex.quote(directory)}",
-                " ".join(
-                    (
-                        shlex.quote(self.launcher),
-                        "-n",
-                        str(request.num_procs),
-                        shlex.quote(self.python),
-                        shlex.quote(request.script_path.name),
-                    )
-                ),
+                "__t0=$(date +%s.%N)",
+                # The run's own failure must not abort before the end time is
+                # taken, or a crashed case loses its timing and its exit code.
+                "set +e",
+                launch,
+                "__rc=$?",
+                "__t1=$(date +%s.%N)",
+                f'echo "{TIMING_MARKER} $__t0 $__t1" >&2',
+                "exit $__rc",
             )
             if line
         )
@@ -229,14 +251,26 @@ class RemoteRunner(Runner):
             *arguments,
         )
 
-    def command_for(self, request: RunRequest) -> tuple[str, ...]:
-        """The full command that runs this case, module loads included.
+    def remote_command(self, script: str) -> str:
+        """``script`` as the one string ssh will hand to the remote shell.
+
+        ssh does not pass its arguments through separately: it joins them with
+        spaces and the remote shell parses the result again. Passed as
+        ``"bash", "-l", "-c", script``, the remote side read
+        ``bash -l -c set -eu …``, ran ``set`` on its own — which prints every
+        shell variable, and those lines then headed every saved stdout — and
+        ran the rest of the script in the outer shell, where ``set -eu`` was
+        never in effect. So the whole program is quoted once, here, and ssh
+        gets it as a single argument.
 
         ``bash -l`` because ``module`` is a shell function defined by the site's
-        profile scripts; a non-login shell does not have it, and the failure
-        reads as "module: command not found" a long way from its cause.
+        profile scripts; a non-login shell does not have it.
         """
-        return self.ssh_command("bash", "-l", "-c", self.remote_script(request))
+        return f"bash -l -c {shlex.quote(script)}"
+
+    def command_for(self, request: RunRequest) -> tuple[str, ...]:
+        """The full command that runs this case, module loads included."""
+        return self.ssh_command(self.remote_command(self.remote_script(request)))
 
     # --- impure: connecting ---------------------------------------------
 
@@ -274,7 +308,7 @@ class RemoteRunner(Runner):
             if line
         )
         loaded = _guarded(
-            self.ssh_command("bash", "-l", "-c", check), self.connect_timeout + 60
+            self.ssh_command(self.remote_command(check)), self.connect_timeout + 60
         )
         if loaded.returncode != 0:
             raise RunnerError(
@@ -381,12 +415,18 @@ class RemoteRunner(Runner):
         if self.fetch_outputs and not timed_out:
             self._fetch(request)
 
+        round_trip = time.monotonic() - started
+        stderr, on_node = split_node_timing(stderr)
+
         result = RunResult(
             case_id=request.case_id,
             exit_code=exit_code,
             stdout=stdout,
             stderr=stderr,
-            wall_time=time.monotonic() - started,
+            # The simulation's own time on the node when the node reported it.
+            # Only a run that never got that far — a timeout, a failed copy —
+            # falls back to the round trip, which is then the honest figure.
+            wall_time=on_node if on_node is not None else round_trip,
             directory=directory,
             runner=self.name,
             command=command,
@@ -410,9 +450,34 @@ class RemoteRunner(Runner):
             "host": self.host,
             "modules": list(self.modules),
             "pythonpath": self.pythonpath,
+            # Results recorded before this measured wall time from here, round
+            # trip included; after it, on the node around mpiexec alone. Same
+            # column, different quantity — so they must not share cache entries.
+            "wall_time": "on-node",
             "launcher": self.launcher,
             "python": self.python,
         }
+
+
+def split_node_timing(stderr: str) -> tuple[str, Optional[float]]:
+    """Remove the node's timing line from stderr, and return the seconds it gives.
+
+    Returns the stderr without the marker line, so what is stored and shown is
+    only what the simulation itself wrote, and None for the time when the
+    marker is absent or unreadable.
+    """
+    kept: list[str] = []
+    seconds: Optional[float] = None
+    for line in stderr.splitlines(keepends=True):
+        if line.startswith(TIMING_MARKER):
+            parts = line.split()
+            try:
+                seconds = max(0.0, float(parts[2]) - float(parts[1]))
+            except (IndexError, ValueError):
+                seconds = None
+            continue
+        kept.append(line)
+    return "".join(kept), seconds
 
 
 def _as_text(stream: Any) -> str:

@@ -91,7 +91,7 @@ def test_remote_script_runs_the_right_command(tmp_path):
     assert script.index("opensn/gcc/15") < script.index("python3/3.12.3")
     assert 'PYTHONPATH="$HOME/opensn/build:' in script
     assert "cd " in script
-    assert script.strip().endswith("mpiexec -n 8 python3 script.py")
+    assert "\nmpiexec -n 8 python3 script.py\n" in script
 
 
 def test_process_count_comes_from_the_request(tmp_path):
@@ -104,11 +104,25 @@ def test_process_count_comes_from_the_request(tmp_path):
 
 def test_command_uses_a_login_shell(tmp_path):
     """`module` is a shell function from the site profile; -l or it is missing."""
-    command = RemoteRunner().command_for(request_for(tmp_path))
+    runner = RemoteRunner()
+    request = request_for(tmp_path)
+    command = runner.command_for(request)
     assert command[0] == "ssh"
-    assert "bash" in command
-    assert "-l" in command
-    assert "-c" in command
+    assert command[-1].startswith("bash -l -c ")
+
+
+def test_the_remote_shell_receives_the_script_intact(tmp_path):
+    """ssh joins its arguments with spaces and the remote shell parses them again.
+
+    Passed as four arguments, the remote side read `bash -l -c set -eu …`: it
+    ran `set` alone, which dumped every shell variable into the saved output,
+    and ran the rest outside `set -eu`. This parses the remote command the way
+    the remote shell will and checks bash gets the whole script as one string.
+    """
+    runner = RemoteRunner()
+    request = request_for(tmp_path)
+    remote = runner.command_for(request)[-1]
+    assert shlex.split(remote) == ["bash", "-l", "-c", runner.remote_script(request)]
 
 
 def test_command_never_prompts_for_a_password(tmp_path):
@@ -243,3 +257,50 @@ def test_the_suite_cannot_reach_a_cluster():
     """
     with pytest.raises(RunnerError):
         RemoteRunner(connect_timeout=1).preflight()
+
+
+
+# --- timing the simulation, not the network -----------------------------------
+
+
+def test_the_run_is_timed_on_the_node_around_mpiexec_alone(tmp_path):
+    """Timed from here, the clock included the SSH round trip and module loads:
+    on class01, 7.1s around a 0.85s solve."""
+    script = RemoteRunner().remote_script(request_for(tmp_path))
+    lines = script.splitlines()
+    launch = next(i for i, line in enumerate(lines) if line.startswith("mpiexec"))
+    start = next(i for i, line in enumerate(lines) if line.startswith("__t0="))
+    end = next(i for i, line in enumerate(lines) if line.startswith("__t1="))
+    loads = [i for i, line in enumerate(lines) if line.startswith("module load")]
+    assert max(loads) < start < launch < end
+
+
+def test_a_failed_run_keeps_its_exit_code_and_its_timing(tmp_path):
+    """set -e would abort before the end time and lose both."""
+    script = RemoteRunner().remote_script(request_for(tmp_path))
+    lines = script.splitlines()
+    assert lines.index("set +e") < next(i for i, l in enumerate(lines) if l.startswith("mpiexec"))
+    assert lines[-1] == "exit $__rc"
+
+
+def test_node_timing_is_read_and_removed_from_stderr():
+    from autoopensn.runner.remote import TIMING_MARKER, split_node_timing
+
+    stderr = f"a warning\n{TIMING_MARKER} 1000.250 1001.101\n"
+    kept, seconds = split_node_timing(stderr)
+    assert seconds == pytest.approx(0.851)
+    assert TIMING_MARKER not in kept
+    assert kept == "a warning\n"
+
+
+def test_missing_node_timing_is_none_not_zero():
+    """No marker means the run never got that far; zero would be a lie."""
+    from autoopensn.runner.remote import split_node_timing
+
+    assert split_node_timing("crashed before mpiexec\n") == ("crashed before mpiexec\n", None)
+
+
+
+def test_results_timed_differently_do_not_share_cache_entries():
+    """Round-trip and on-node timings fill the same column with different things."""
+    assert RemoteRunner().config()["wall_time"] == "on-node"
