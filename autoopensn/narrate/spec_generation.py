@@ -305,6 +305,16 @@ def request_to_spec(
     if review and draft.citations:
         _review(draft, llm, reviewer, system, pack_commit)
 
+    # 5. Say what was changed that nobody asked to change.
+    changed = changed_from_tutorial(draft.spec)
+    if changed:
+        draft.notes.insert(
+            0,
+            "Changed from the tutorial's own settings: " + "; ".join(changed)
+            + ". Anything here the request did not ask for is the model's choice, "
+            "not yours — edit it back if it should not be there.",
+        )
+
     return draft
 
 
@@ -370,6 +380,63 @@ def _ground(prompt: str, k: int = 5) -> list[Citation]:
         return []
 
 
+def changed_from_tutorial(spec: Spec) -> list[str]:
+    """Every fixed value in a spec that differs from its tutorial's default.
+
+    The generation prompt says to prefer the defaults, and the model does not
+    always: asked only to compare two inner solvers on the 2D tutorial, it
+    changed the polar quadrature from 2 to 128 and the mesh from 16 cells to
+    10, copying values from other scenarios in its shortlist, and in one run
+    switched scattering on. Each change still validates, so validation cannot
+    catch it. What can be done deterministically is to make every one of them
+    visible, beside the spec, before anything runs. Swept parameters are left
+    out: varying those is the point.
+    """
+    try:
+        template = load_template(spec.template)
+    except TemplateError:
+        return []
+    swept = {dimension.parameter for dimension in spec.sweep}
+    fixed = {**(spec.template_parameters or {}), **(spec.solver or {})}
+    changes = []
+    for name, value in fixed.items():
+        declaration = template.parameters.get(name)
+        if declaration is None or name in swept:
+            continue
+        if _differs_from_default(declaration.default, value):
+            changes.append(f"{name} {declaration.default!r} → {value!r}")
+    return changes
+
+
+def _differs_from_default(default: Any, value: Any) -> bool:
+    if isinstance(default, (int, float)) and isinstance(value, (int, float)) \
+            and not isinstance(default, bool) and not isinstance(value, bool):
+        return float(default) != float(value)
+    return default != value
+
+
+def narrowed_by(original: Spec, revised: Spec) -> list[str]:
+    """What a revision removed from the question the original spec asked.
+
+    Every swept parameter, and every value swept over, is part of what the
+    person asked to compare. A revision may change the fixed settings around
+    them; it may not take any of them away, or move the study to another
+    scenario. Empty when nothing was dropped.
+    """
+    if revised.template != original.template:
+        return [f"the scenario ({original.template} became {revised.template})"]
+    kept = {dimension.parameter: set(map(repr, dimension.values)) for dimension in revised.sweep}
+    dropped: list[str] = []
+    for dimension in original.sweep:
+        if dimension.parameter not in kept:
+            dropped.append(f"the sweep over {dimension.parameter}")
+            continue
+        missing = [v for v in dimension.values if repr(v) not in kept[dimension.parameter]]
+        if missing:
+            dropped.append(f"{dimension.parameter} = {', '.join(map(str, missing))}")
+    return dropped
+
+
 def _review(
     draft: SpecDraft,
     llm: LLM,
@@ -427,11 +494,25 @@ def _review(
         return
 
     objections = "\n".join(f"- {finding.explanation}" for finding in fixable)
+    # The declarations go in again. Without them the revision cannot check an
+    # objection against anything, and takes the reviewer's word: asked to
+    # compare Richardson with GMRES on the 2D tutorial, a reviewer said
+    # Richardson was not declared — it is — and the revision dropped the
+    # comparison, writing "not declared in the provided parameters", which in
+    # that call was true: none had been provided.
+    try:
+        declarations = declaration_lines(load_template(draft.spec.template), limit=200)
+    except TemplateError:
+        declarations = "(unavailable)"
     repair = (
         f"REQUEST:\n{draft.prompt}\n\nYOU PRODUCED:\n{spec_text}\n\n"
         f"A subject-matter reviewer raised these problems:\n{objections}\n\n"
-        "Return a corrected spec as YAML, using only the parameters and ranges "
-        "you were given. Keep everything that was right."
+        f"THE TEMPLATE'S DECLARED PARAMETERS:\n{declarations}\n\n"
+        "These declarations are authoritative. Where an objection contradicts "
+        "them — says a value is not allowed when it is listed, or a parameter "
+        "does not exist when it does — the objection is wrong: ignore it. Never "
+        "drop a parameter or value the request asked about. Return a corrected "
+        "spec as YAML. Keep everything that was right."
     )
 
     try:
@@ -455,6 +536,23 @@ def _review(
         draft.review_status = "flagged"
         return
 
+    dropped = narrowed_by(draft.spec, revised)
+    if dropped:
+        # Valid is not enough. A spec with the question removed still
+        # validates; it just no longer answers anything. The reviewer is
+        # advisory, and the request is not its to rewrite.
+        draft.notes.append(
+            "The domain reviewer's suggested revision would have dropped "
+            + "; ".join(dropped)
+            + ", which the request asked about. Kept the original. The reviewer said: "
+            + " ".join(finding.explanation for finding in fixable)
+        )
+        draft.review_status = "flagged"
+        return
+
+    draft.notes.extend(
+        f"Revised after the domain reviewer said: {finding.explanation}" for finding in fixable
+    )
     draft.spec = revised
     draft.revisions = 1
     draft.review_status = "revised"

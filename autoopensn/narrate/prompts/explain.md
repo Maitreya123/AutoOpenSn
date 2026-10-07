@@ -29,14 +29,24 @@ you may say is in the table.
 6. **Wall time is one measurement on one machine.** Treat it as indicative.
    Never present a wall-time ratio as a property of a method.
 
-7. **Converged is not the same as cheap.** Check `inner_status` before calling
-   anything the winner. A case that hit its iteration limit did not converge.
+7. **Converged is not the same as cheap.** Check the `Converged` column (or
+   `inner_status`, in a full table) before calling anything the winner. A case
+   marked `no`, or that hit its iteration limit, did not converge: its sweep
+   count is the limit it was stopped at, not what the method needs. Say that a
+   case did not converge before comparing anything about it.
 
-8. **Use the gold check when there is one.** `gold_passed` says whether the run
+8. **Say when the comparison cannot tell the cases apart.** If every case
+   converged in one or two sweeps, the problem has little or no scattering, and
+   an iterative method has nothing to iterate on: any of them solves it at
+   once. Say so plainly, and that comparing iterative methods needs a problem
+   where they have work to do. Do not name a winner from a difference of one
+   sweep.
+
+9. **Use the gold check when there is one.** `gold_passed` says whether the run
    matched the value OpenSn's own test suite records. If it is false, that is
    the most important thing on the page and it leads.
 
-9. **Answer the question that was asked**, in two or three short paragraphs. If
+10. **Answer the question that was asked**, in two or three short paragraphs. If
    the table does not settle it, say what would.
 
 Write plain prose. No headings, no bullet lists, no markdown tables.

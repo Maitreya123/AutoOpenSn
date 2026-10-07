@@ -218,9 +218,14 @@ export default function App() {
         ) : (
           <>
             <pre className="spec">{draft.spec_yaml}</pre>
-            {draft.notes.length > 0 && (
-              <div className="notice warn">{draft.notes.join(" ")}</div>
-            )}
+            {/* One box per note: they come from different places — what the
+                model changed unasked, what the domain reviewer objected to —
+                and run together they read as one wall of text. */}
+            {draft.notes.map((note, index) => (
+              <div key={index} className="notice warn">
+                {note}
+              </div>
+            ))}
             <div className="row">
               <button onClick={run} disabled={running}>
                 {running ? <><span className="spinner" />Running…</> : "Run this"}

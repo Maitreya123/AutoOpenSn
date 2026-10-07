@@ -420,3 +420,135 @@ def test_the_replayed_column_reaches_the_model(table, gmres_spec):
 
 def test_the_spec_prompt_requires_every_requested_value():
     assert "Include every value the request names" in load_prompt("request_to_spec")
+
+
+# --- a revision may refine the question, not remove it ------------------------
+
+
+def test_the_reviewer_cannot_talk_the_spec_out_of_its_question(one_scenario):
+    """Replays what happened on the 2D tutorial.
+
+    Asked to compare two values, the model produced a valid spec sweeping both.
+    The reviewer objected — wrongly — and the revision dropped the sweep, which
+    still validates. Valid is not enough: the original must stand.
+    """
+    shrunk = GOOD_SPEC.replace(
+        """sweep:
+  - parameter: l_abs_tol
+    values: [1.0e-4, 1.0e-6, 1.0e-8]
+""", "sweep: []\n")
+    assert shrunk != GOOD_SPEC
+    llm = ScriptedLLM([GOOD_SPEC, shrunk])
+    reviewer = FakeReviewer(
+        FakeReviewPass(answer_level=[FakeFinding("l_abs_tol is not declared", False)])
+    )
+    draft = _grounded_draft(llm, one_scenario, reviewer)
+    assert [d.parameter for d in draft.spec.sweep] == ["l_abs_tol"]
+    assert draft.revisions == 0
+    assert draft.review_status == "flagged"
+    note = " ".join(draft.notes)
+    assert "Kept the original" in note
+    assert "l_abs_tol is not declared" in note, "the objection must be shown, not swallowed"
+
+
+def test_dropping_one_value_is_also_narrowing(one_scenario):
+    fewer = GOOD_SPEC.replace("values: [1.0e-4, 1.0e-6, 1.0e-8]", "values: [1.0e-4, 1.0e-6]")
+    llm = ScriptedLLM([GOOD_SPEC, fewer])
+    reviewer = FakeReviewer(FakeReviewPass(answer_level=[FakeFinding("too many", False)]))
+    draft = _grounded_draft(llm, one_scenario, reviewer)
+    assert len(draft.spec.sweep[0].values) == 3
+
+
+def test_a_revision_that_keeps_the_question_is_accepted_and_shown(one_scenario):
+    """Refining the fixed settings around the sweep is what review is for."""
+    refined = GOOD_SPEC.replace("name: tolerance_study", "name: refined_study")
+    llm = ScriptedLLM([GOOD_SPEC, refined])
+    reviewer = FakeReviewer(
+        FakeReviewPass(answer_level=[FakeFinding("name it more precisely", False)])
+    )
+    draft = _grounded_draft(llm, one_scenario, reviewer)
+    assert draft.spec.name == "refined_study"
+    assert any("name it more precisely" in n for n in draft.notes)
+
+
+def test_the_revision_is_shown_the_declared_parameters(one_scenario):
+    """Without them it has nothing to check an objection against."""
+    llm = ScriptedLLM([GOOD_SPEC, GOOD_SPEC])
+    reviewer = FakeReviewer(FakeReviewPass(answer_level=[FakeFinding("x", False)]))
+    _grounded_draft(llm, one_scenario, reviewer)
+    repair_prompt = llm.calls[-1][1] if isinstance(llm.calls[-1], tuple) else str(llm.calls[-1])
+    assert "DECLARED PARAMETERS" in repair_prompt
+    assert "l_abs_tol" in repair_prompt
+    assert "authoritative" in repair_prompt
+
+
+def test_narrowed_by_reports_exactly_what_went():
+    import yaml as _yaml
+    from autoopensn.narrate.spec_generation import narrowed_by
+    from autoopensn.spec import Spec
+
+    def spec(sweep):
+        return Spec(**{**_yaml.safe_load(GOOD_SPEC), "sweep": sweep})
+
+    original = spec([{"parameter": "l_abs_tol", "values": [1e-4, 1e-6]}])
+    assert narrowed_by(original, original) == []
+    assert narrowed_by(original, spec([])) == ["the sweep over l_abs_tol"]
+    assert narrowed_by(original, spec([{"parameter": "l_abs_tol", "values": [1e-4]}])) == [
+        "l_abs_tol = 1e-06"
+    ]
+    # Adding to the question is not narrowing it.
+    wider = spec([{"parameter": "l_abs_tol", "values": [1e-4, 1e-6, 1e-8]}])
+    assert narrowed_by(original, wider) == []
+
+
+# --- changes nobody asked for are shown ----------------------------------------
+
+
+def _spec(**fields):
+    import yaml as _yaml
+    from autoopensn.spec import Spec
+
+    return Spec(**{**_yaml.safe_load(GOOD_SPEC), **fields})
+
+
+def test_unrequested_changes_from_the_tutorial_are_listed():
+    """On the 2D tutorial the model moved the quadrature and the mesh, unasked."""
+    from autoopensn.narrate.spec_generation import changed_from_tutorial
+    from autoopensn.templates import load_template
+
+    defaults = load_template("reed_1d").parameters
+    spec = _spec(solver={"l_abs_tol": 1.0e-6}, template_parameters={"emit_avg_flux": True, "n_polar": 64})
+    changes = changed_from_tutorial(spec)
+    assert any(c.startswith(f"n_polar {defaults['n_polar'].default!r} → 64") for c in changes)
+
+
+def test_the_swept_parameter_is_not_reported_as_a_change():
+    """Varying it is the point of the study."""
+    from autoopensn.narrate.spec_generation import changed_from_tutorial
+
+    changes = changed_from_tutorial(_spec())
+    assert not any(c.startswith("l_abs_tol ") for c in changes)
+
+
+def test_a_value_equal_to_the_default_is_not_a_change():
+    """1e-10 written as 1.0e-10 is the same number."""
+    from autoopensn.narrate.spec_generation import changed_from_tutorial
+    from autoopensn.templates import load_template
+
+    default = load_template("reed_1d").parameters["n_polar"].default
+    spec = _spec(template_parameters={"emit_avg_flux": True, "n_polar": float(default)})
+    assert not any(c.startswith("n_polar ") for c in changed_from_tutorial(spec))
+
+
+def test_the_changes_reach_the_draft_as_its_first_note(one_scenario):
+    llm = ScriptedLLM([GOOD_SPEC.replace("emit_avg_flux: true", "emit_avg_flux: true\n  n_polar: 64")])
+    draft = request_to_spec("vary the tolerance", llm=llm, scenarios=one_scenario,
+                            ground=False, review=False)
+    assert draft.notes and draft.notes[0].startswith("Changed from the tutorial's own settings")
+    assert "n_polar" in draft.notes[0]
+
+
+def test_the_narration_knows_a_one_sweep_comparison_says_nothing():
+    text = load_prompt("explain")
+    assert "one or two sweeps" in text
+    assert "Converged" in text

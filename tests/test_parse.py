@@ -147,7 +147,10 @@ def test_classic_richardson_lines_parse_too():
         ", psi_change = 2.0e-10, rho_est = 0.8912, status = converged\n"
     )
     observations = parse_stdout(text)
-    assert observations.iterations == 12
+    # Lines 0 through 12 are thirteen sweeps: classic Richardson sweeps first
+    # and logs after (num_iterations = k + 1 in classic_richardson.cc). This
+    # test used to expect 12, which encoded the off-by-one it now guards.
+    assert observations.iterations == 13
     assert observations.converged is True
 
 
@@ -398,3 +401,70 @@ def test_balance_is_still_read_without_a_rank_prefix():
     """The fixtures omit the prefix; both shapes must parse."""
     observations = parse_stdout("Balance table:\n Balance                     = 3.55e-15\n")
     assert observations.balance_residual == pytest.approx(3.55e-15)
+
+
+# --- sweep counts per inner-solver family -------------------------------------
+
+# Verbatim shape from the 2D tutorial on class01: classic Richardson stopped at
+# its cap. OpenSn's own summary says 100 iterations; each is one sweep.
+REAL_RICHARDSON_AT_CAP = """\
+[0]  00:00:00.1 WGS groups [0-0] iteration = 0, phi_change = 1.000000e+00
+[0]  00:00:00.1 WGS groups [0-0] iteration = 1, phi_change = 8.500000e-01, rho_est = 0.85
+[0]  00:00:01.9 WGS groups [0-0] iteration = 99, phi_change = 4.500313e-08, rho_est = 0.9261
+[0]  00:00:01.9 WGS groups [0-0] final, status = iteration_limit, iterations = 100, phi_change = 4.500313e-08
+"""
+
+# And GMRES on the same problem: iteration 0 is the initial residual.
+REAL_GMRES_CONVERGED = """\
+[0]  00:00:00.1 WGS groups [0-0] iteration = 0, residual = 1.000000e+00
+[0]  00:00:00.2 WGS groups [0-0] iteration = 1, residual = 3.100000e-01
+[0]  00:00:00.3 WGS groups [0-0] iteration = 15, residual = 1.501047e-11, status = converged
+"""
+
+
+def test_classic_richardson_counts_its_first_line_as_a_sweep():
+    """It sweeps, then logs `iteration = k`; num_iterations is k + 1."""
+    observations = parse_stdout(REAL_RICHARDSON_AT_CAP)
+    assert observations.sweeps == 100, "OpenSn's own summary says 100"
+    assert observations.converged is False
+    assert observations.inner_status == "iteration_limit"
+
+
+def test_krylov_methods_count_steps_after_the_initial_residual():
+    observations = parse_stdout(REAL_GMRES_CONVERGED)
+    assert observations.sweeps == 15
+    assert observations.converged is True
+
+
+def test_each_solve_is_counted_by_its_own_family():
+    """A log with a Richardson solve then a GMRES solve."""
+    both = REAL_RICHARDSON_AT_CAP.split("[0]  00:00:01.9 WGS groups [0-0] final")[0] + REAL_GMRES_CONVERGED
+    assert parse_stdout(both).solve_blocks == (100, 15)
+
+
+# --- a run that ran out is not a result -----------------------------------------
+
+
+def test_the_table_says_when_a_case_did_not_converge():
+    import pandas as pd
+    from autoopensn.parse.table import convergence_table
+
+    frame = pd.DataFrame([
+        {"case": "inner_linear_method=classic_richardson", "sweeps": 100, "wall_time": 2.3, "converged": False},
+        {"case": "inner_linear_method=petsc_gmres", "sweeps": 15, "wall_time": 0.7, "converged": True},
+    ])
+    view = convergence_table(frame)
+    assert list(view["Converged"]) == ["no", "yes"]
+
+
+def test_a_study_where_everything_converged_keeps_its_four_columns():
+    """The columns the convergence study was specified with, and no more."""
+    import pandas as pd
+    from autoopensn.parse.table import convergence_table
+
+    frame = pd.DataFrame([
+        {"case": "a", "rel_flux_diff": 1e-6, "sweeps": 8, "wall_time": 0.8, "converged": True},
+    ])
+    assert list(convergence_table(frame).columns) == [
+        "Case", "Relative flux difference", "Sweeps", "Wall time (s)",
+    ]

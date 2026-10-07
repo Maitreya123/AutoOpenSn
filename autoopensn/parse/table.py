@@ -143,6 +143,17 @@ def convergence_table(frame: pd.DataFrame) -> pd.DataFrame:
     }
     present = [name for name in columns if name in frame.columns]
     view = frame[present].rename(columns=columns)
+
+    # A case that stopped at its iteration cap has a sweep count that is a
+    # limit, not a result. Without this column a table cannot say so, and the
+    # narration, which sees only the table, reports the cap as if the solve had
+    # finished: a Richardson run that ran out at 100 sweeps was described as
+    # "using 99 sweeps". Shown only when some case did not converge, so the
+    # study the four columns were specified for keeps exactly those four.
+    if "converged" in frame.columns and (frame["converged"] == False).any():  # noqa: E712
+        view["Converged"] = frame["converged"].map(
+            lambda value: "yes" if value is True else ("no" if value is False else None)
+        ).values
     return view.reset_index(drop=True)
 
 

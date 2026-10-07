@@ -140,15 +140,31 @@ class Observations:
 
 
 def _inner_solve_blocks(text: str) -> tuple[list[int], Optional[str]]:
-    """Inner iteration counts per groupset solve, and the last status seen.
+    """Sweeps in each groupset solve, and the last status seen.
 
     A solve is a run of ``iteration = n`` lines with non-decreasing ``n``. The
     index resets when the next solve starts, which is how separate solves are
     told apart without the log naming them.
+
+    **The two families of inner solver number their lines differently**, and
+    the count has to follow each one:
+
+    - The PETSc Krylov methods (GMRES, BiCGStab, PETSc Richardson) log the
+      initial residual as ``iteration = 0``, before any Krylov step, so the
+      last index is the number of steps. These lines report ``residual``.
+    - OpenSn's own classic Richardson sweeps first and logs after, starting at
+      ``iteration = 0`` for the first sweep (``num_iterations = k + 1`` in
+      ``classic_richardson.cc``), so it is the last index plus one. These lines
+      report ``phi_change``. Counted like the others, a 100-sweep run read 99 —
+      found comparing a Richardson run's log with OpenSn's own summary line.
     """
     blocks: list[int] = []
     current: Optional[int] = None
+    pointwise = False
     last_status: Optional[str] = None
+
+    def count(index: int, by_sweep: bool) -> int:
+        return index + 1 if by_sweep else index
 
     for line in text.splitlines():
         match = WGS_ITERATION.search(line)
@@ -156,16 +172,16 @@ def _inner_solve_blocks(text: str) -> tuple[list[int], Optional[str]]:
             continue
         index = int(match.group("index"))
         if current is not None and index <= current:
-            blocks.append(current)
-            current = index
-        else:
-            current = index
+            blocks.append(count(current, pointwise))
+            pointwise = False
+        current = index
+        pointwise = pointwise or "phi_change" in line
         status = STATUS.search(line)
         if status:
             last_status = status.group("status")
 
     if current is not None:
-        blocks.append(current)
+        blocks.append(count(current, pointwise))
     return blocks, last_status
 
 
