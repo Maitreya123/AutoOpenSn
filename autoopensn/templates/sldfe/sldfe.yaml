@@ -92,6 +92,8 @@ parameters:
       a study needs more.
     minimum: 0
     maximum: 1000
+data_files:
+- ../../../../../tools/ang_quad_plotting/plot_sldfe_quadrature.py
 gold:
   case: sLDFE.py
   tests_json: doc/source/tutorials/modeling/angular_quadrature/tests.json

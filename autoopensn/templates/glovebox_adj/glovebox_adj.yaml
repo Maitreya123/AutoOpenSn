@@ -377,6 +377,7 @@ parameters:
       Range is a guard scaled from the tutorial's own value, not a code limit; widen
       it by hand if a study needs more.
 data_files:
+- WIMS69
 - glovebox.msh
 gold:
   case: glovebox_adj.py

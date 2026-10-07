@@ -14,7 +14,9 @@
           "rel_tol": 0.0
         }
       ],
-      "data_files": [],
+      "data_files": [
+        "WIMS69"
+      ],
       "num_procs": 4,
       "has_gold": true,
       "script_lines": 291,
@@ -143,7 +145,9 @@
           "rel_tol": 0.0
         }
       ],
-      "data_files": [],
+      "data_files": [
+        "WIMS69"
+      ],
       "num_procs": 4,
       "has_gold": true,
       "script_lines": 332,
@@ -292,6 +296,7 @@
         }
       ],
       "data_files": [
+        "WIMS69",
         "glovebox.msh"
       ],
       "num_procs": 8,
@@ -417,6 +422,7 @@
         }
       ],
       "data_files": [
+        "WIMS69",
         "glovebox.msh"
       ],
       "num_procs": 8,
@@ -1024,7 +1030,9 @@
           "rel_tol": 0.0
         }
       ],
-      "data_files": [],
+      "data_files": [
+        "../../../../../tools/ang_quad_plotting/plot_sldfe_quadrature.py"
+      ],
       "num_procs": 1,
       "has_gold": true,
       "script_lines": 57,
@@ -3797,7 +3805,9 @@
           "rel_tol": 0.0
         }
       ],
-      "data_files": [],
+      "data_files": [
+        "../../../../../../test/assets/mesh/uncollided_cube_coarse.msh"
+      ],
       "num_procs": 1,
       "has_gold": true,
       "script_lines": 270,

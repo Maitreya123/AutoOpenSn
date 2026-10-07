@@ -8,6 +8,7 @@ is the parser's. What is left here is order, caching, and retries.
 
 from __future__ import annotations
 
+import posixpath
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
@@ -96,6 +97,38 @@ def write_scripts(spec: Spec, directory: Path, template: Optional[Template] = No
     return written
 
 
+TUTORIALS_IN_SOURCE = "doc/source/tutorials"
+
+
+def data_files_for(template: Template) -> tuple[str, ...]:
+    """A template's data files, as paths inside the OpenSn source tree.
+
+    Each tutorial keeps its meshes and cross sections beside its notebook, and
+    the template records which notebook it came from, so the path is the
+    notebook's directory plus the file name.
+    """
+    if not template.data_files or not template.generated_from:
+        return ()
+    folder = Path(TUTORIALS_IN_SOURCE) / Path(template.generated_from).parent
+    paths = []
+    for name in template.data_files:
+        # A helper reached as "../../../../../tools/x.py" from the notebook is
+        # really "tools/x.py" in the source tree. Normalised here so the runner
+        # sees a plain path, and refused if it climbs out of the tree.
+        path = posixpath.normpath(str(folder / name))
+        if path.startswith(".."):
+            raise ValueError(f"data file {name!r} of {template.name} is outside the OpenSn source")
+        paths.append(path)
+    return tuple(paths)
+
+
+def workdir_for(template: Template) -> str:
+    """The notebook's folder inside the source tree, or empty when there is none."""
+    if not template.generated_from:
+        return ""
+    return str(Path(TUTORIALS_IN_SOURCE) / Path(template.generated_from).parent)
+
+
 def run_study(
     spec: Spec,
     runner: Runner,
@@ -141,6 +174,8 @@ def run_study(
             num_procs=spec.num_procs,
             timeout_seconds=spec.timeout_seconds,
             parameters=rendered.point.parameters,
+            data_files=data_files_for(template),
+            workdir=workdir_for(template),
         )
         request.write_inputs(spec_yaml=spec_yaml)
 

@@ -977,6 +977,7 @@ parameters:
     minimum: 0
     maximum: 100000.0
 data_files:
+- WIMS69
 - glovebox.msh
 gold:
   case: glovebox.py

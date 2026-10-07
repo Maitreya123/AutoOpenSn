@@ -29,6 +29,7 @@ Nothing here is selected by default and the test suite never connects.
 from __future__ import annotations
 
 import os
+import posixpath
 import shlex
 import shutil
 import subprocess
@@ -52,6 +53,15 @@ start until that is on the library path. Loaded the other way round, the Python
 module fails without a word and the run falls back to the system Python 3.6,
 which then fails on ``import pyopensn`` a long way from the cause."""
 
+DEFAULT_SOURCE = "opensn"
+"""The OpenSn source checkout on the node, relative to the home directory.
+
+Data files are copied out of it on the node itself rather than uploaded from
+here: every tutorial keeps its meshes and cross sections beside its notebook,
+the build already needed this checkout at the pinned commit, and so the files
+are already on the node at exactly the revision the templates were written
+against."""
+
 DEFAULT_PYTHONPATH = "$HOME/opensn/build"
 """Where a build with ``-DOPENSN_WITH_PYTHON_MODULE=ON`` leaves the package: the
 extension compiles to ``build/pyopensn/__init__.*.so``, so the build directory
@@ -72,6 +82,24 @@ cluster that is down should say so in seconds, not hold a study for an hour."""
 TIMING_MARKER = "AUTOOPENSN_NODE_TIMING"
 """Prefixes the start and end timestamps the node prints around ``mpiexec``."""
 
+NODE_TIMEOUT_MARGIN = 120
+"""How much longer this side waits than the node lets the run go on.
+
+The node enforces the run's time limit itself, with coreutils ``timeout``, and
+this side waits a little longer so that it hears the node report the timeout
+instead of giving up first. When this side gave up first — the only limit
+there was — it dropped the connection and the job carried on: the glovebox
+tutorial hung after an output error with eight ranks spinning at full CPU, and
+was still running on a shared node seventeen minutes after it had been
+reported as timed out."""
+
+KILL_GRACE = 30
+"""Seconds between asking the run to stop and killing it outright."""
+
+TIMED_OUT_CODES = (124, 137)
+"""What ``timeout`` returns: 124 when the run stopped on the polite signal, 137
+when it had to be killed."""
+
 PROBE_TIMEOUT = 4
 """Shorter still, for deciding *whether* to use the cluster at all. A firewall
 drops rather than refuses, so an unreachable host costs the full timeout, and
@@ -86,6 +114,47 @@ A module-level name rather than ``subprocess.run`` directly, so that it can be
 replaced for this module alone. Patching ``subprocess.run`` reaches every module
 that imported ``subprocess`` — it is the same object — which is how a guard
 meant to keep tests off the cluster once disabled the local runner as well."""
+
+
+SSH_FAILURE = 255
+"""ssh's own exit status when it could not connect or lost the connection."""
+
+CONNECTION_PHRASES = (
+    "Connection refused",
+    "Connection closed",
+    "Connection reset",
+    "Connection timed out",
+    "Operation timed out",
+    "kex_exchange_identification",
+    "Broken pipe",
+)
+
+RETRY_DELAYS = (3.0, 10.0, 30.0)
+"""Seconds to wait before each retry of a connection that failed outright.
+
+A login node that sees a burst of new connections refuses them for a while —
+running every scenario once refused nine in a row. Waiting and trying again is
+what clears it, and it is safe precisely because nothing reached the node: a
+retry is only made when ssh failed before anything on the far side ran."""
+
+
+_sleep = time.sleep
+"""Module-level for the same reason as ``_run_process``: patching ``time.sleep``
+replaces it in the one shared ``time`` module, for everything."""
+
+
+def _connection_failed(returncode: int, stdout: str, stderr: str) -> bool:
+    """True only when ssh never got a program running on the far side.
+
+    Exit 255 alone is not enough — a remote program can exit 255 too — so the
+    message must be ssh's, and nothing may have come back on stdout, which is
+    what separates "could not connect" from "connected, ran, then failed".
+    """
+    return (
+        returncode == SSH_FAILURE
+        and not stdout.strip()
+        and any(phrase in stderr for phrase in CONNECTION_PHRASES)
+    )
 
 
 def _guarded(command: Sequence[str], timeout: float) -> subprocess.CompletedProcess:
@@ -104,9 +173,16 @@ def _guarded(command: Sequence[str], timeout: float) -> subprocess.CompletedProc
     be authoritative.
     """
     try:
-        return _run_process(
-            list(command), capture_output=True, text=True, timeout=timeout, check=False
-        )
+        for delay in (*RETRY_DELAYS, None):
+            completed = _run_process(
+                list(command), capture_output=True, text=True, timeout=timeout, check=False
+            )
+            if delay is None or not _connection_failed(
+                completed.returncode, completed.stdout, completed.stderr
+            ):
+                return completed
+            _sleep(delay)
+        return completed
     except subprocess.TimeoutExpired as expired:
         raise RunnerError(
             f"{command[0]} did not respond within {timeout:.0f}s: "
@@ -128,6 +204,7 @@ class RemoteRunner(Runner):
         modules: Sequence[str] = DEFAULT_MODULES,
         module_path: Optional[str] = DEFAULT_MODULE_PATH,
         pythonpath: Optional[str] = DEFAULT_PYTHONPATH,
+        source: str = DEFAULT_SOURCE,
         remote_root: str = DEFAULT_REMOTE_ROOT,
         python: str = "python3",
         launcher: str = "mpiexec",
@@ -145,6 +222,7 @@ class RemoteRunner(Runner):
             # the characters that could end the string or run something.
             raise RunnerError(f"pythonpath contains a character that is not allowed: {pythonpath!r}")
         self.pythonpath = pythonpath
+        self.source = source.rstrip("/")
         root = remote_root.rstrip("/")
         if root == "~":
             root = "."
@@ -212,6 +290,9 @@ class RemoteRunner(Runner):
         preamble = self.module_preamble()
         launch = " ".join(
             (
+                "timeout",
+                f"--kill-after={KILL_GRACE}",
+                str(max(1, int(request.timeout_seconds))),
                 shlex.quote(self.launcher),
                 "-n",
                 str(request.num_procs),
@@ -225,6 +306,7 @@ class RemoteRunner(Runner):
                 "set -eu",
                 preamble,
                 f"cd {shlex.quote(directory)}",
+                *self.staging_lines(request),
                 "__t0=$(date +%s.%N)",
                 # The run's own failure must not abort before the end time is
                 # taken, or a crashed case loses its timing and its exit code.
@@ -237,6 +319,38 @@ class RemoteRunner(Runner):
             )
             if line
         )
+
+    def staging_lines(self, request: RunRequest) -> list[str]:
+        """Lay the run directory out as a mirror of the source tree.
+
+        Each data file is copied to its own path inside the source, and the
+        script to the notebook's folder, which becomes the working directory.
+        A tutorial then resolves ``glovebox.msh``, ``LANL30/OpenMC/x.h5`` and
+        ``../../../../../test/assets/mesh/y.msh`` alike, exactly as written.
+        Copying everything flat into one folder — the first version of this —
+        broke every reference with a directory in it.
+
+        Before the clock starts, so staging is not simulation time, and under
+        ``set -e``, so a file that is not there stops the run with cp's own
+        message instead of reaching OpenSn as a mesh it could not read.
+        """
+        lines = []
+        for path in request.data_files:
+            if path.startswith("/") or ".." in Path(path).parts:
+                raise RunnerError(f"data file must be a path inside the OpenSn source: {path!r}")
+            parent = posixpath.dirname(path)
+            if parent:
+                lines.append(f"mkdir -p {shlex.quote(parent)}")
+            source = shlex.quote(self.source + "/" + path)
+            lines.append(f'cp -r "$HOME"/{source} {shlex.quote(path)}')
+        if request.workdir:
+            if request.workdir.startswith("/") or ".." in Path(request.workdir).parts:
+                raise RunnerError(f"workdir must be inside the run directory: {request.workdir!r}")
+            name = shlex.quote(request.script_path.name)
+            lines.append(f"mkdir -p {shlex.quote(request.workdir)}")
+            lines.append(f"cp {name} {shlex.quote(request.workdir)}/{name}")
+            lines.append(f"cd {shlex.quote(request.workdir)}")
+        return lines
 
     def ssh_command(self, *arguments: str) -> tuple[str, ...]:
         """An ``ssh`` invocation carrying this runner's connection options."""
@@ -391,15 +505,19 @@ class RemoteRunner(Runner):
         timed_out = False
 
         try:
-            completed = _run_process(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=request.timeout_seconds,
-                env=environment,
-                check=False,
-            )
-            stdout, stderr, exit_code = completed.stdout, completed.stderr, completed.returncode
+            for delay in (*RETRY_DELAYS, None):
+                completed = _run_process(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=request.timeout_seconds + KILL_GRACE + NODE_TIMEOUT_MARGIN,
+                    env=environment,
+                    check=False,
+                )
+                stdout, stderr, exit_code = completed.stdout, completed.stderr, completed.returncode
+                if delay is None or not _connection_failed(exit_code, stdout, stderr):
+                    break
+                _sleep(delay)
         except subprocess.TimeoutExpired as expired:
             timed_out = True
             stdout = _as_text(expired.stdout)
@@ -417,6 +535,11 @@ class RemoteRunner(Runner):
 
         round_trip = time.monotonic() - started
         stderr, on_node = split_node_timing(stderr)
+        if exit_code in TIMED_OUT_CODES and not timed_out:
+            # The node stopped it. Recorded as a timeout, which is what it was,
+            # rather than as a crash with an unexplained exit code.
+            timed_out = True
+            stderr += f"\nAutoOpenSn: stopped on {self.host} after {request.timeout_seconds:.0f}s.\n"
 
         result = RunResult(
             case_id=request.case_id,

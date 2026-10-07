@@ -19,6 +19,7 @@ function of a pinned checkout and therefore does not change under us.
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -176,9 +177,93 @@ def _data_files(directory: Path, script: str) -> list[str]:
                 found.append(str(Path(reference)))
             except ValueError:
                 continue
+    found.extend(_helper_modules(directory, script))
+    found.extend(_data_directories(directory, script))
+    found.extend(_root_relative_files(directory, script))
     # Directories of cross sections are referenced one file at a time, so a
     # tutorial with sixty-nine of them would otherwise list sixty-nine paths.
     return sorted(set(found))
+
+
+_SYS_PATH_APPEND = re.compile(r"""sys\.path\.(?:append|insert)\((?:\d+,\s*)?["']([^"']+)["']\)""")
+_IMPORTED = re.compile(r"^\s*(?:from\s+([A-Za-z_]\w*)\s+import|import\s+([A-Za-z_]\w*))", re.MULTILINE)
+
+
+_STRING = re.compile(r"""["']([^"'\n]{1,200})["']""")
+
+
+def _source_root(directory: Path) -> Optional[Path]:
+    """The top of the OpenSn checkout a notebook directory sits in."""
+    for candidate in (directory, *directory.parents):
+        if (candidate / "doc" / "source" / "tutorials").is_dir():
+            return candidate
+    return None
+
+
+def _data_directories(directory: Path, script: str) -> list[str]:
+    """Folders of data named by a bare string, like ``xs_dir = "WIMS69"``.
+
+    The detector tutorials build each cross-section path at run time, as
+    ``xs_dir + "/Air.cxs"``, so no single string in the script is a file that
+    exists — but the folder name is, and the whole folder has to travel.
+    """
+    found = []
+    for literal in _STRING.findall(script):
+        if literal in (".", "..") or literal.startswith("/") or ".." in Path(literal).parts:
+            continue
+        if re.search(rf"""(?:makedirs|mkdir)\(\s*["']{re.escape(literal)}["']""", script):
+            # A folder the script creates is an output that happens to share
+            # its name with something beside the notebook — the forward-peaked
+            # tutorial writes plots into "images", which is also where the
+            # documentation keeps its pictures.
+            continue
+        candidate = directory / literal
+        if candidate.is_dir() and any(child.is_file() for child in candidate.rglob("*")):
+            found.append(str(Path(literal)))
+    return found
+
+
+def _root_relative_files(directory: Path, script: str) -> list[str]:
+    """Data files named relative to the top of the source tree.
+
+    The uncollided tutorial walks up from where it runs until it finds
+    ``test/assets/mesh``, then opens a mesh below that. Recorded relative to the
+    notebook, like every other data file, so the run lays it out at its true
+    source path and the tutorial's own search finds it.
+    """
+    root = _source_root(directory)
+    if root is None:
+        return []
+    found = []
+    for reference in _DATA_REFERENCE.findall(script):
+        if (directory / reference).exists() or reference.startswith("/"):
+            continue
+        candidate = root / reference
+        if candidate.is_file():
+            found.append(os.path.relpath(candidate, directory))
+    return found
+
+
+def _helper_modules(directory: Path, script: str) -> list[str]:
+    """Local Python modules a tutorial reaches by putting a directory on sys.path.
+
+    The sLDFE tutorial appends ``../../../../../tools/ang_quad_plotting`` to the
+    module search path and then imports a plotting helper from there. (Spelled
+    out in words: the architecture test that confines search-path changes to
+    the bridge reads source text, and quoting the call would trip it.) That path only resolves from
+    inside the OpenSn source tree, and a run happens in its own directory, so
+    the helper has to travel with the run like any mesh does. Recorded relative
+    to the notebook, exactly as the tutorial spells it, and only when the module
+    file is really there.
+    """
+    found: list[str] = []
+    imported = {a or b for a, b in _IMPORTED.findall(script)}
+    for added in _SYS_PATH_APPEND.findall(script):
+        for module in imported:
+            candidate = directory / added / f"{module}.py"
+            if candidate.is_file():
+                found.append(str(Path(added) / f"{module}.py"))
+    return found
 
 
 def _keywords(notebook: Notebook, section: str) -> list[str]:

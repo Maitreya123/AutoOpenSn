@@ -40,6 +40,9 @@ Host class01
   User <netid>
   ProxyJump orchard
   IdentityFile ~/.ssh/orchard_ed25519
+  ControlMaster auto
+  ControlPath ~/.ssh/cm-class01-%r@%h-%p
+  ControlPersist 10m
 ```
 
 Off campus, the TAMU VPN is required; `engr.tamu.edu` silently drops outside
@@ -105,6 +108,11 @@ long runs, ask the administrator to put them through Orchard's batch queues
 instead.
 
 ### Checking it works
+
+Every scenario has been run this way, once, at its defaults: 37 of 41 reproduce
+OpenSn's recorded answers exactly, and none gives a wrong one. The other four,
+and the bugs the first pass turned up, are in
+[cluster_verification.md](cluster_verification.md).
 
 ```shell
 autoopensn run study.yaml --runner remote --host class01

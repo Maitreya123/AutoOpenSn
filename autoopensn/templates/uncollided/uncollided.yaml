@@ -335,6 +335,8 @@ parameters:
     description: Keyword argument compute_balance of SteadyStateSourceSolver. Range
       is a guard scaled from the tutorial's own value, not a code limit; widen it
       by hand if a study needs more.
+data_files:
+- ../../../../../../test/assets/mesh/uncollided_cube_coarse.msh
 gold:
   case: uncollided.py
   tests_json: doc/source/tutorials/workflows/data_reuse/uncollided/tests.json

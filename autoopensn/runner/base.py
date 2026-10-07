@@ -62,6 +62,18 @@ class RunRequest:
     """
     num_procs: int = 1
     timeout_seconds: float = 1800.0
+    data_files: tuple[str, ...] = ()
+    """Files the script opens by bare name — meshes, cross sections — as paths
+    inside the OpenSn source tree, which is where every tutorial keeps them.
+    A runner that cannot stage them should say so rather than run without."""
+    workdir: str = ""
+    """Where the script runs, relative to the run directory; empty for the run
+    directory itself. A tutorial is written to run from its own notebook folder
+    inside the OpenSn source tree, and resolves every data path relative to
+    that — including paths that climb out of it, like the meshes it borrows from
+    ``../../../../../test/assets``. Running it from its notebook's position in a
+    mirror of the tree, with each data file at its true source path, makes every
+    such reference resolve exactly as written, without touching the script."""
     parameters: dict[str, Any] = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)
 

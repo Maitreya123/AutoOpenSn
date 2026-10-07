@@ -43,6 +43,9 @@ def no_cluster(monkeypatch):
         raise FileNotFoundError("the test suite does not reach the cluster")
 
     monkeypatch.setattr("autoopensn.runner.remote._run_process", refuse)
+    # And no test waits out a real retry back-off: three refusals would cost
+    # forty-three seconds of sleeping in any test that reaches one.
+    monkeypatch.setattr("autoopensn.runner.remote._sleep", lambda seconds: None)
 
 
 @pytest.fixture

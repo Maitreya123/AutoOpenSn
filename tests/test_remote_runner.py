@@ -91,7 +91,7 @@ def test_remote_script_runs_the_right_command(tmp_path):
     assert script.index("opensn/gcc/15") < script.index("python3/3.12.3")
     assert 'PYTHONPATH="$HOME/opensn/build:' in script
     assert "cd " in script
-    assert "\nmpiexec -n 8 python3 script.py\n" in script
+    assert " mpiexec -n 8 python3 script.py\n" in script
 
 
 def test_process_count_comes_from_the_request(tmp_path):
@@ -268,7 +268,7 @@ def test_the_run_is_timed_on_the_node_around_mpiexec_alone(tmp_path):
     on class01, 7.1s around a 0.85s solve."""
     script = RemoteRunner().remote_script(request_for(tmp_path))
     lines = script.splitlines()
-    launch = next(i for i, line in enumerate(lines) if line.startswith("mpiexec"))
+    launch = next(i for i, line in enumerate(lines) if "mpiexec" in line)
     start = next(i for i, line in enumerate(lines) if line.startswith("__t0="))
     end = next(i for i, line in enumerate(lines) if line.startswith("__t1="))
     loads = [i for i, line in enumerate(lines) if line.startswith("module load")]
@@ -279,7 +279,7 @@ def test_a_failed_run_keeps_its_exit_code_and_its_timing(tmp_path):
     """set -e would abort before the end time and lose both."""
     script = RemoteRunner().remote_script(request_for(tmp_path))
     lines = script.splitlines()
-    assert lines.index("set +e") < next(i for i, l in enumerate(lines) if l.startswith("mpiexec"))
+    assert lines.index("set +e") < next(i for i, l in enumerate(lines) if "mpiexec" in l)
     assert lines[-1] == "exit $__rc"
 
 
@@ -304,3 +304,200 @@ def test_missing_node_timing_is_none_not_zero():
 def test_results_timed_differently_do_not_share_cache_entries():
     """Round-trip and on-node timings fill the same column with different things."""
     assert RemoteRunner().config()["wall_time"] == "on-node"
+
+
+# --- data files ---------------------------------------------------------------
+
+
+def test_data_files_are_staged_before_the_clock_starts(tmp_path):
+    """Copying a mesh is not simulation time."""
+    request = RunRequest(
+        case_id="c", script="", directory=tmp_path / "s" / "c", num_procs=1,
+        data_files=("doc/source/tutorials/a/b/mesh.msh",),
+    )
+    lines = RemoteRunner().remote_script(request).splitlines()
+    copy = next(i for i, l in enumerate(lines) if l.startswith("cp "))
+    assert next(i for i, l in enumerate(lines) if l.startswith("cd ")) < copy
+    assert copy < next(i for i, l in enumerate(lines) if l.startswith("__t0="))
+
+
+def test_the_run_mirrors_the_source_tree(tmp_path):
+    """Each file lands at its true source path and the script runs from the
+    notebook's folder, so `LANL30/OpenMC/x.h5` and `../../../../../test/…`
+    resolve exactly as the tutorial wrote them. The first version copied every
+    file flat into one folder, which broke any reference with a directory in it."""
+    request = RunRequest(
+        case_id="c", script="", directory=tmp_path / "s" / "c",
+        data_files=(
+            "doc/source/tutorials/m/g/LANL30/OpenMC/x.h5",
+            "test/assets/mesh/y.msh",
+        ),
+        workdir="doc/source/tutorials/m/g",
+    )
+    lines = RemoteRunner().remote_script(request).splitlines()
+    assert 'cp -r "$HOME"/opensn/doc/source/tutorials/m/g/LANL30/OpenMC/x.h5 doc/source/tutorials/m/g/LANL30/OpenMC/x.h5' in lines
+    assert 'cp -r "$HOME"/opensn/test/assets/mesh/y.msh test/assets/mesh/y.msh' in lines
+    assert "mkdir -p doc/source/tutorials/m/g/LANL30/OpenMC" in lines
+    # The script follows, and the run happens from the notebook's folder.
+    assert "cp script.py doc/source/tutorials/m/g/script.py" in lines
+    run_dir_moves = [l for l in lines if l.startswith("cd ")]
+    assert run_dir_moves[-1] == "cd doc/source/tutorials/m/g"
+    assert lines.index(run_dir_moves[-1]) < next(i for i, l in enumerate(lines) if "mpiexec" in l)
+
+
+def test_a_workdir_cannot_escape_the_run_directory(tmp_path):
+    request = RunRequest(case_id="c", script="", directory=tmp_path / "c", workdir="../elsewhere")
+    with pytest.raises(RunnerError, match="inside the run directory"):
+        RemoteRunner().remote_script(request)
+
+
+@pytest.mark.parametrize("bad", ["/etc/passwd", "doc/../../.ssh/id_rsa"])
+def test_a_data_file_cannot_escape_the_source_tree(tmp_path, bad):
+    request = RunRequest(case_id="c", script="", directory=tmp_path / "c", data_files=(bad,))
+    with pytest.raises(RunnerError, match="inside the OpenSn source"):
+        RemoteRunner().remote_script(request)
+
+
+def test_templates_declare_their_data_files_as_source_paths():
+    from autoopensn.study import data_files_for
+    from autoopensn.templates import load_template
+
+    files = data_files_for(load_template("glovebox_adj"))
+    folder = "doc/source/tutorials/applications/detector_response/glovebox_adjoint"
+    # The WIMS69 cross-section folder as well as the mesh: the script builds
+    # each cross-section path at run time from the folder name.
+    assert files == (f"{folder}/WIMS69", f"{folder}/glovebox.msh")
+    assert data_files_for(load_template("reed_1d")) == ()
+
+
+def test_a_helper_module_on_sys_path_is_found_and_staged(tmp_path):
+    """The sLDFE tutorial imports a plotter from ../../../../../tools/…"""
+    from autoopensn.tutorials.catalog import _data_files
+
+    notebook_dir = tmp_path / "doc" / "source" / "tutorials" / "a" / "b"
+    notebook_dir.mkdir(parents=True)
+    tools = tmp_path / "tools" / "plotting"
+    tools.mkdir(parents=True)
+    (tools / "plotter.py").write_text("def plot(): pass\n")
+    script = 'import sys\nsys.path.append("../../../../../tools/plotting")\nfrom plotter import plot\n'
+    assert _data_files(notebook_dir, script) == ["../../../../../tools/plotting/plotter.py"]
+
+
+def test_a_helper_that_is_not_there_is_not_recorded(tmp_path):
+    """Recording a file that does not exist would make every run fail to stage."""
+    from autoopensn.tutorials.catalog import _data_files
+
+    script = 'import sys\nsys.path.append("../nowhere")\nfrom plotter import plot\n'
+    assert _data_files(tmp_path, script) == []
+
+
+def test_a_relative_data_file_is_normalised_into_the_source_tree():
+    from autoopensn.study import data_files_for
+    from autoopensn.templates import load_template
+
+    assert data_files_for(load_template("sldfe")) == (
+        "tools/ang_quad_plotting/plot_sldfe_quadrature.py",
+    )
+
+
+
+# --- a login node that refuses bursts of connections --------------------------
+
+
+class _Completed:
+    def __init__(self, returncode, stdout="", stderr=""):
+        self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
+
+
+def test_an_ssh_refusal_is_recognised():
+    from autoopensn.runner.remote import _connection_failed
+
+    refused = "ssh: connect to host 128.194.17.172 port 22: Connection refused"
+    assert _connection_failed(255, "", refused)
+    # Something ran and printed: never a connection failure, never retried.
+    assert not _connection_failed(255, "OpenSn version 1.0.1\n", refused)
+    # A program that exits 255 for its own reasons is not ssh failing.
+    assert not _connection_failed(255, "", "Traceback: ValueError")
+    assert not _connection_failed(1, "", refused)
+
+
+def test_a_refused_connection_is_retried_until_it_succeeds(tmp_path, monkeypatch):
+    """Running every scenario once had nine refused in a row; waiting clears it."""
+    import autoopensn.runner.remote as remote
+
+    replies = iter([
+        _Completed(255, "", "ssh: connect to host x port 22: Connection refused"),
+        _Completed(255, "", "Connection closed by UNKNOWN port 65535"),
+        _Completed(0, "fine\n", ""),
+    ])
+    calls = []
+    monkeypatch.setattr(remote, "_run_process", lambda *a, **k: calls.append(1) or next(replies))
+    result = remote._guarded(["ssh", "class01", "true"], timeout=5)
+    assert result.returncode == 0
+    assert len(calls) == 3
+
+
+def test_retrying_gives_up_and_reports_the_failure(monkeypatch):
+    import autoopensn.runner.remote as remote
+
+    refused = _Completed(255, "", "Connection refused")
+    calls = []
+    monkeypatch.setattr(remote, "_run_process", lambda *a, **k: calls.append(1) or refused)
+    result = remote._guarded(["ssh", "class01", "true"], timeout=5)
+    assert result.returncode == 255
+    assert len(calls) == len(remote.RETRY_DELAYS) + 1
+
+
+def test_a_simulation_that_failed_is_not_retried(monkeypatch):
+    """Retrying a run that executed would run it twice on a shared machine."""
+    import autoopensn.runner.remote as remote
+
+    crashed = _Completed(1, "OpenSn version 1.0.1\n", "RuntimeError: bad mesh")
+    calls = []
+    monkeypatch.setattr(remote, "_run_process", lambda *a, **k: calls.append(1) or crashed)
+    remote._guarded(["ssh", "class01", "run"], timeout=5)
+    assert len(calls) == 1
+
+
+# --- a run that hangs must not outlive its time limit -------------------------
+
+
+def test_the_node_enforces_the_time_limit(tmp_path):
+    """The glovebox tutorial hung after an output error and kept eight ranks
+    spinning on a shared node long after this side had reported a timeout,
+    because only this side was keeping time. The node now keeps it too."""
+    request = RunRequest(case_id="c", script="", directory=tmp_path / "c", num_procs=8,
+                         timeout_seconds=600)
+    launch = next(l for l in RemoteRunner().remote_script(request).splitlines() if "mpiexec" in l)
+    assert launch.startswith("timeout --kill-after=30 600 mpiexec -n 8 ")
+
+
+def test_this_side_waits_longer_than_the_node(tmp_path, monkeypatch):
+    """So that it hears the node report the timeout instead of giving up first."""
+    import autoopensn.runner.remote as remote
+
+    seen = {}
+
+    def run(command, **kwargs):
+        seen["timeout"] = kwargs["timeout"]
+        return _Completed(0, "ok\n", "")
+
+    monkeypatch.setattr(remote, "_run_process", run)
+    monkeypatch.setattr(remote.RemoteRunner, "_send", lambda self, request: None)
+    request = RunRequest(case_id="c", script="print(1)\n", directory=tmp_path / "c",
+                         timeout_seconds=600)
+    RemoteRunner(fetch_outputs=False).run(request)
+    assert seen["timeout"] > 600 + remote.KILL_GRACE
+
+
+@pytest.mark.parametrize("code", [124, 137])
+def test_a_run_the_node_stopped_is_recorded_as_a_timeout(tmp_path, monkeypatch, code):
+    import autoopensn.runner.remote as remote
+
+    monkeypatch.setattr(remote, "_run_process", lambda *a, **k: _Completed(code, "partial\n", ""))
+    monkeypatch.setattr(remote.RemoteRunner, "_send", lambda self, request: None)
+    request = RunRequest(case_id="c", script="print(1)\n", directory=tmp_path / "c",
+                         timeout_seconds=60)
+    result = RemoteRunner(fetch_outputs=False).run(request)
+    assert result.timed_out
+    assert "stopped on class01" in result.stderr

@@ -564,6 +564,8 @@ parameters:
     description: Keyword argument compute_balance of SteadyStateSourceSolver. Range
       is a guard scaled from the tutorial's own value, not a code limit; widen it
       by hand if a study needs more.
+data_files:
+- WIMS69
 gold:
   case: detector_adj.py
   tests_json: doc/source/tutorials/applications/detector_response/detector_adjoint/tests.json
