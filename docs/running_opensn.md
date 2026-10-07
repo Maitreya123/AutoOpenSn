@@ -18,17 +18,56 @@ exactly this arrangement: it copies the rendered script over, loads the module
 in a login shell, runs `mpiexec`, and brings stdout back for the ordinary
 parser.
 
-### Reaching the node
+### Setting it up: one command
 
-Orchard's compute nodes are only reachable through the front end, so put the
-jump in `~/.ssh/config` rather than doing it by hand. Then `scp` and everything
-else inherits it. `ControlMaster` matters more than it looks: a sweep makes
-several SSH calls per case, and the login node resets bursts of fresh
-connections.
+You need an Orchard account that includes class01 — the cluster administrator
+creates it — and, off campus, the TAMU VPN connected. Then, from this
+repository, after installing it:
+
+```shell
+scripts/setup_cluster.sh --netid <your NetID>
+```
+
+It does the rest, in order, and is safe to run again: every step checks
+whether it is already done first, so a rerun after a dropped connection picks
+up where it stopped. You type your NetID password once, when it installs your
+key. It finishes by running the Reed problem on class01 through AutoOpenSn and
+checking it against the value OpenSn's own regression suite records, so when it
+says the cluster is ready, a real run has already succeeded.
+
+| Step | What it does |
+| --- | --- |
+| 1 | Checks this machine can reach Orchard |
+| 2 | Creates `~/.ssh/orchard_ed25519`, if there is no such key |
+| 3 | Adds `orchard` and `class01` to `~/.ssh/config`, leaving existing entries alone |
+| 4 | Installs the key on Orchard — the one password prompt |
+| 5 | Records class01's host key, so automated runs are never asked to |
+| 6 | Builds OpenSn on class01 into `~/opensn/build` — about two minutes |
+| 7 | Installs IPython and matplotlib for your user on class01 |
+| 8 | Runs Reed through AutoOpenSn and checks it against gold |
+
+Options: `--jobs N` for fewer compile jobs on a busy node, `--local-only` for
+steps 1 to 3. The steps below are what it does, for doing them by hand or
+working out why one failed.
+
+### Reaching the node, by hand
+
+**A key**, because `RemoteRunner` runs with `BatchMode=yes` and never prompts. A
+study of seven cases that stops on case one waiting for a password is worse
+than one that refuses to start.
+
+```shell
+ssh-keygen -t ed25519 -N "" -f ~/.ssh/orchard_ed25519
+```
+
+**Two entries in `~/.ssh/config`.** Orchard's compute nodes are reachable only
+through the front end, so the jump goes here, where `scp` and everything else
+inherits it.
 
 ```
 Host orchard
-  HostName orchard.engr.tamu.edu
+  HostName 128.194.17.172
+  HostKeyAlias orchard.engr.tamu.edu
   User <netid>
   IdentityFile ~/.ssh/orchard_ed25519
   ControlMaster auto
@@ -45,14 +84,33 @@ Host class01
   ControlPersist 10m
 ```
 
-Off campus, the TAMU VPN is required; `engr.tamu.edu` silently drops outside
-traffic, so the symptom is a connection timeout rather than a refusal.
+By address rather than by name, because **the TAMU VPN's resolver does not
+answer for `orchard.engr.tamu.edu`**: with the VPN connected, the name fails
+with "Could not resolve hostname" while the address works. `HostKeyAlias` keeps
+the host key filed under the name, so it still verifies if the address changes.
 
-`RemoteRunner` runs with `BatchMode=yes` and never prompts, so **key-based login
-is required**. Install the key once with
-`ssh-copy-id -i ~/.ssh/orchard_ed25519.pub <netid>@orchard.engr.tamu.edu`. A
-study of seven cases that stops on case one waiting for a password is worse than
-one that refuses to start.
+`ControlMaster` matters more than it looks. A study makes several SSH calls per
+case, and the login node refuses bursts of new connections — running every
+scenario once had it refuse nine in a row. With it, one connection carries
+everything. `RemoteRunner` also retries a connection that failed before
+anything ran, with back-off.
+
+**The key on Orchard**, which asks for your password once:
+
+```shell
+ssh-copy-id -i ~/.ssh/orchard_ed25519.pub -o HostKeyAlias=orchard.engr.tamu.edu <netid>@128.194.17.172
+```
+
+**class01's host key**, recorded once, because `BatchMode` cannot answer the
+"are you sure you want to continue connecting" question, and every automated
+connection then fails with "Host key verification failed":
+
+```shell
+ssh -o StrictHostKeyChecking=accept-new class01 true
+```
+
+Home directories are shared between the login node and class01, so the key
+installed on one works on both.
 
 ### Building OpenSn there
 
@@ -99,6 +157,24 @@ The build puts the compiled extension at
 directory that goes on `PYTHONPATH`. `RemoteRunner` does that, and the module
 loads, in the order above, on every run.
 
+**Two Python packages**, for your user only:
+
+```shell
+python3 -m pip install --user ipython matplotlib     # with both modules loaded
+```
+
+Every tutorial ends with a Jupyter-only shutdown block that imports IPython, and
+about ten plot with matplotlib. The site Python has neither, so without them a
+run prints its answer and then crashes. They are installed rather than the
+templates edited, because editing a template would break its
+character-for-character match with the upstream tutorial.
+
+**One thing that cannot be fixed from here**: the site Python 3.12 was built
+without `_ctypes`, so `keigen_to_transient` and
+`source_step_steady_to_transient_to_steady` fail on import. It needs the
+cluster's Python rebuilt with `libffi`, which is the administrator's to do.
+Every other scenario runs.
+
 `RemoteRunner.config()` records the module list in the cache key, so results
 from two toolchains are never conflated.
 
@@ -122,6 +198,24 @@ autoopensn run study.yaml --runner remote --host class01
 alike: it could not connect, or it connected and the module did not load. The
 second prints what it tried, because the usual cause is a module name that has
 moved.
+
+### When something fails
+
+Every one of these was hit for real while setting class01 up.
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `Operation timed out` reaching Orchard | Off campus without the VPN | Connect the TAMU VPN |
+| `Could not resolve hostname orchard.engr.tamu.edu` | The VPN's resolver | Use the address, as in the config above |
+| `Permission denied (publickey,password)` with the right password | No account on the login node yet | Ask the administrator |
+| `Host key verification failed` | class01's key never recorded | `ssh -o StrictHostKeyChecking=accept-new class01 true` |
+| `Connection refused` or `Connection closed by UNKNOWN port 65535` partway through | The login node throttling bursts of connections | `ControlMaster`, above; `RemoteRunner` retries these itself |
+| `ModuleNotFoundError: No module named 'pyopensn'` | Built without the Python module, or modules loaded in the wrong order | Rebuild with `-DOPENSN_WITH_PYTHON_MODULE=ON`; load `opensn/gcc/15` before `python3/3.12.3` |
+| A run prints its answer, then `No module named 'IPython'` | The packages above are missing | `pip install --user ipython matplotlib` |
+| `No module named '_ctypes'` | The site Python's build | The administrator; two scenarios are affected |
+
+`RemoteRunner.preflight()` separates the first few from the rest: it says
+whether it could not connect, or connected and could not load OpenSn.
 
 ## 2. Building it yourself
 

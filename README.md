@@ -80,6 +80,28 @@ If the second prints a seven-row table, the deterministic half is working. If
 `autoopensn spec "compare GMRES tolerances 1e-4 and 1e-6"` also returns a spec,
 the model is wired up too.
 
+## Running real OpenSn on the cluster
+
+Without a cluster, studies run in AutoOpenSn's own 1D solver, which covers two
+of the 41 scenarios and says so beside every table. To run all of them on real
+OpenSn on TAMU's Orchard cluster, you need an account that includes class01
+(ask the cluster administrator) and, off campus, the TAMU VPN. Then:
+
+```shell
+scripts/setup_cluster.sh --netid <your NetID>
+```
+
+It sets up your SSH access, builds OpenSn on class01, and finishes by running a
+real problem there and checking it against OpenSn's own recorded answer. You
+type your password once. About three minutes the first time; safe to rerun.
+After that the web page uses the cluster automatically whenever the VPN is up.
+Doing it by hand, and fixing it when it fails, is in
+[docs/running_opensn.md](docs/running_opensn.md).
+
+Every scenario has been run this way: 37 of 41 reproduce OpenSn's recorded
+answers exactly, and none gives a wrong one
+([docs/cluster_verification.md](docs/cluster_verification.md)).
+
 ## Usage
 
 ### The interface
