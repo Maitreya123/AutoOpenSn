@@ -58,7 +58,14 @@ WGS_FINAL = re.compile(
     r"(?:, iterations = (?P<iterations>\d+))?"
 )
 STATUS = re.compile(r"status\s*=\s*(?P<status>converged|iteration_limit|failed|not_run)")
-BALANCE_LINE = re.compile(rf"^\s*Balance\s*=\s*(?P<value>{NUMBER})\s*$", re.MULTILINE)
+# Real OpenSn prefixes every log line with the MPI rank, "[0]  ". The pattern
+# was first written against hand-made fixtures that left the prefix out, and
+# anchored at the start of the line it could never match a real run. Found the
+# first time AutoOpenSn read output from an actual OpenSn build.
+RANK_PREFIX = r"(?:\[\d+\]\s*)?"
+BALANCE_LINE = re.compile(
+    rf"^{RANK_PREFIX}\s*Balance\s*=\s*(?P<value>{NUMBER})\s*$", re.MULTILINE
+)
 SWEEPS_LOGGED = re.compile(rf"\bsweeps\s*=\s*(?P<value>\d+)")
 AVG_SWEEP_TIME = re.compile(rf"avg_sweep_time\s*=\s*(?P<value>{NUMBER})\s*s\b")
 

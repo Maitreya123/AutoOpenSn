@@ -22,13 +22,18 @@ parser.
 
 Orchard's compute nodes are only reachable through the front end, so put the
 jump in `~/.ssh/config` rather than doing it by hand. Then `scp` and everything
-else inherits it:
+else inherits it. `ControlMaster` matters more than it looks: a sweep makes
+several SSH calls per case, and the login node resets bursts of fresh
+connections.
 
 ```
 Host orchard
   HostName orchard.engr.tamu.edu
   User <netid>
   IdentityFile ~/.ssh/orchard_ed25519
+  ControlMaster auto
+  ControlPath ~/.ssh/cm-%r@%h-%p
+  ControlPersist 10m
 
 Host class01
   HostName nuen-orch-class001
@@ -48,20 +53,49 @@ one that refuses to start.
 
 ### Building OpenSn there
 
-The module supplies the dependencies; OpenSn itself you build once, and with 32
-cores it is minutes rather than hours:
+The module supplies the compiler, MPI and the other dependencies; OpenSn itself
+you build once, into your home directory, which the login node and class01
+share. Measured on class01: **1 minute 49 seconds at `-j32`, peak 12.9 GB**.
 
 ```shell
 ssh class01
 export MODULEPATH=/scratch-local/software/modulefiles:$MODULEPATH
 module load opensn/gcc/15
+module load python3/3.12.3          # after opensn: see below
 
-git clone https://github.com/open-sn/opensn
-cd opensn && mkdir build && cd build
-cmake .. && make -j64
+git clone https://github.com/open-sn/opensn ~/opensn
+cd ~/opensn
+git checkout 2fd4a19ceade4f8da581a5029c68f474d3333ccb
+mkdir build && cd build
+cmake .. -DOPENSN_WITH_PYTHON_MODULE=ON
+make -j32
 ```
 
-`module avail` lists the alternatives; an `opensn/clang` module exists too.
+Three departures from the generic build instructions, each of which produces a
+build that compiles cleanly and then cannot run a single AutoOpenSn script:
+
+- **`-DOPENSN_WITH_PYTHON_MODULE=ON`.** It defaults to `OFF`, which builds the
+  console application only, and every template imports `pyopensn`. The shared
+  build already on the node under `opensn/clang/21.1.0` was configured this
+  way, which is why it cannot be used.
+- **The pinned commit.** The templates are checked character for character
+  against `2fd4a19`. The shared clang build is seven months older, and running
+  the Reed problem on it gets through the solve and then fails on
+  `ComputeBalanceTable`, the call that produces the regression gold values.
+- **`python3/3.12.3` loaded after `opensn/gcc/15`.** The system Python is 3.6.8.
+  The site's 3.12 is linked against `libmpi.so.12` and cannot start until the
+  OpenSn module has put MPI on the library path; loaded first, it fails without
+  a message and leaves the system Python in place.
+
+`-j32` rather than the `-j64` the generic instructions suggest: it is all 32
+physical cores, compilation gains little from hyperthreading, and it leaves the
+other half of a shared machine to whoever else is on it.
+
+The build puts the compiled extension at
+`build/pyopensn/__init__.cpython-312-x86_64-linux-gnu.so`, so it is the build
+directory that goes on `PYTHONPATH`. `RemoteRunner` does that, and the module
+loads, in the order above, on every run.
+
 `RemoteRunner.config()` records the module list in the cache key, so results
 from two toolchains are never conflated.
 

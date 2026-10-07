@@ -45,8 +45,25 @@ through the front end, so the jump belongs in ``~/.ssh/config`` where ``scp``
 and every other tool picks it up too, rather than being half-encoded here."""
 
 DEFAULT_MODULE_PATH = "/scratch-local/software/modulefiles"
-DEFAULT_MODULES = ("opensn/gcc/15",)
-DEFAULT_REMOTE_ROOT = "~/autoopensn-runs"
+DEFAULT_MODULES = ("opensn/gcc/15", "python3/3.12.3")
+"""In this order, and the order matters. ``opensn/gcc/15`` is the compiler and
+MPI; the site's Python 3.12 is linked against ``libmpi.so.12`` and cannot even
+start until that is on the library path. Loaded the other way round, the Python
+module fails without a word and the run falls back to the system Python 3.6,
+which then fails on ``import pyopensn`` a long way from the cause."""
+
+DEFAULT_PYTHONPATH = "$HOME/opensn/build"
+"""Where a build with ``-DOPENSN_WITH_PYTHON_MODULE=ON`` leaves the package: the
+extension compiles to ``build/pyopensn/__init__.*.so``, so the build directory
+itself is what goes on the path. ``$HOME`` rather than ``~`` because the value is
+expanded inside double quotes, where a tilde is not."""
+DEFAULT_REMOTE_ROOT = "autoopensn-runs"
+"""Relative, and so relative to the remote home directory: both ``ssh host cmd``
+and ``scp host:path`` start there. A leading ``~`` looks equivalent and is not.
+Every path here is passed through ``shlex.quote``, and a quoted tilde is never
+expanded — ``mkdir -p '~/x'`` makes a directory literally named ``~`` while
+``scp`` expands its own tilde and copies elsewhere, so the script lands in one
+place and the run looks for it in another."""
 
 CONNECT_TIMEOUT = 20
 """Seconds to wait for the SSH handshake. Distinct from the run timeout: a
@@ -57,6 +74,15 @@ PROBE_TIMEOUT = 4
 drops rather than refuses, so an unreachable host costs the full timeout, and
 that wait happens before the user sees anything at all. Four seconds is long
 enough for a handshake over a VPN and short enough not to read as a hang."""
+
+
+_run_process = subprocess.run
+"""The one entry point this module uses to start a process.
+
+A module-level name rather than ``subprocess.run`` directly, so that it can be
+replaced for this module alone. Patching ``subprocess.run`` reaches every module
+that imported ``subprocess`` — it is the same object — which is how a guard
+meant to keep tests off the cluster once disabled the local runner as well."""
 
 
 def _guarded(command: Sequence[str], timeout: float) -> subprocess.CompletedProcess:
@@ -75,7 +101,7 @@ def _guarded(command: Sequence[str], timeout: float) -> subprocess.CompletedProc
     be authoritative.
     """
     try:
-        return subprocess.run(
+        return _run_process(
             list(command), capture_output=True, text=True, timeout=timeout, check=False
         )
     except subprocess.TimeoutExpired as expired:
@@ -98,6 +124,7 @@ class RemoteRunner(Runner):
         host: str = DEFAULT_HOST,
         modules: Sequence[str] = DEFAULT_MODULES,
         module_path: Optional[str] = DEFAULT_MODULE_PATH,
+        pythonpath: Optional[str] = DEFAULT_PYTHONPATH,
         remote_root: str = DEFAULT_REMOTE_ROOT,
         python: str = "python3",
         launcher: str = "mpiexec",
@@ -110,7 +137,17 @@ class RemoteRunner(Runner):
         self.host = host
         self.modules = tuple(modules)
         self.module_path = module_path
-        self.remote_root = remote_root.rstrip("/")
+        if pythonpath and any(c in pythonpath for c in '"`\\\n'):
+            # Expanded inside double quotes on the remote side, so these are
+            # the characters that could end the string or run something.
+            raise RunnerError(f"pythonpath contains a character that is not allowed: {pythonpath!r}")
+        self.pythonpath = pythonpath
+        root = remote_root.rstrip("/")
+        if root == "~":
+            root = "."
+        elif root.startswith("~/"):
+            root = root[2:]
+        self.remote_root = root
         self.python = python
         self.launcher = launcher
         self.ssh = ssh
@@ -141,9 +178,14 @@ class RemoteRunner(Runner):
         """
         lines: list[str] = []
         if self.module_path:
-            lines.append(f"export MODULEPATH={shlex.quote(self.module_path)}:$MODULEPATH")
+            lines.append(f"export MODULEPATH={shlex.quote(self.module_path)}:${{MODULEPATH:-}}")
         for module in self.modules:
             lines.append(f"module load {shlex.quote(module)}")
+        if self.pythonpath:
+            # Prepended: the Python module sets PYTHONPATH to its own
+            # site-packages, where numpy and mpi4py live, and replacing it
+            # would trade one import error for another.
+            lines.append(f'export PYTHONPATH="{self.pythonpath}:${{PYTHONPATH:-}}"')
         return "\n".join(lines)
 
     def remote_script(self, request: RunRequest) -> str:
@@ -315,7 +357,7 @@ class RemoteRunner(Runner):
         timed_out = False
 
         try:
-            completed = subprocess.run(
+            completed = _run_process(
                 command,
                 capture_output=True,
                 text=True,
@@ -367,6 +409,7 @@ class RemoteRunner(Runner):
             "runner": self.name,
             "host": self.host,
             "modules": list(self.modules),
+            "pythonpath": self.pythonpath,
             "launcher": self.launcher,
             "python": self.python,
         }

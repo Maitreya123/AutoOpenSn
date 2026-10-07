@@ -40,22 +40,39 @@ def request_for(tmp_path: Path, case_id: str = "baseline", num_procs: int = 4) -
 
 def test_remote_directory_mirrors_the_local_one(tmp_path):
     """A run directory here and its counterpart there share a name."""
-    runner = RemoteRunner(remote_root="~/autoopensn-runs")
+    runner = RemoteRunner(remote_root="autoopensn-runs")
     request = request_for(tmp_path, "l_abs_tol-1.0e-8")
-    assert runner.remote_dir(request) == "~/autoopensn-runs/study/l_abs_tol-1.0e-8"
+    assert runner.remote_dir(request) == "autoopensn-runs/study/l_abs_tol-1.0e-8"
+
+
+def test_no_remote_path_relies_on_tilde_expansion(tmp_path):
+    """A quoted tilde is never expanded, and every path here is quoted.
+
+    With ``~/autoopensn-runs`` as the root, ``mkdir -p '~/…'`` made a directory
+    literally named ``~``, scp expanded its own tilde and copied the script to
+    the real home, and the run then looked for it in the wrong one. Found by
+    reading the generated command before the first real run, not by a failure.
+    """
+    request = request_for(tmp_path)
+    for root in ("~/autoopensn-runs", "autoopensn-runs"):
+        runner = RemoteRunner(remote_root=root)
+        assert "~" not in runner.remote_dir(request)
+        assert "~" not in runner.remote_script(request)
 
 
 def test_module_preamble_prepends_rather_than_replaces():
     """The site's own modulefiles must survive; losing them is confusing."""
     preamble = RemoteRunner().module_preamble()
-    assert f"export MODULEPATH={DEFAULT_MODULE_PATH}:$MODULEPATH" in preamble
+    # ${MODULEPATH:-} rather than $MODULEPATH: the script runs under set -u,
+    # where an unset variable is an error rather than an empty string.
+    assert f"export MODULEPATH={DEFAULT_MODULE_PATH}:${{MODULEPATH:-}}" in preamble
     for module in DEFAULT_MODULES:
         assert f"module load {module}" in preamble
 
 
 def test_module_preamble_is_empty_when_nothing_to_load():
     """A node with OpenSn already on PATH should not be handed module commands."""
-    runner = RemoteRunner(modules=(), module_path=None)
+    runner = RemoteRunner(modules=(), module_path=None, pythonpath=None)
     assert runner.module_preamble() == ""
 
 
@@ -69,6 +86,10 @@ def test_remote_script_runs_the_right_command(tmp_path):
     runner = RemoteRunner()
     script = runner.remote_script(request_for(tmp_path, num_procs=8))
     assert "module load opensn/gcc/15" in script
+    assert "module load python3/3.12.3" in script
+    # Python is linked against MPI and cannot start before it is loaded.
+    assert script.index("opensn/gcc/15") < script.index("python3/3.12.3")
+    assert 'PYTHONPATH="$HOME/opensn/build:' in script
     assert "cd " in script
     assert script.strip().endswith("mpiexec -n 8 python3 script.py")
 
@@ -98,7 +119,7 @@ def test_command_never_prompts_for_a_password(tmp_path):
 
 def test_paths_with_shell_metacharacters_are_quoted(tmp_path):
     """A case id is derived from parameter values and reaches a remote shell."""
-    runner = RemoteRunner(remote_root="~/runs with spaces")
+    runner = RemoteRunner(remote_root="runs with spaces")
     request = request_for(tmp_path, "weird; rm -rf me")
     script = runner.remote_script(request)
 
@@ -107,7 +128,7 @@ def test_paths_with_shell_metacharacters_are_quoted(tmp_path):
     # One word, not four. If the quoting were wrong the shell would read `rm`
     # as a second command rather than as part of a directory name.
     assert len(words) == 2, f"cd took {len(words) - 1} arguments: {words[1:]}"
-    assert words[1] == "~/runs with spaces/study/weird; rm -rf me"
+    assert words[1] == "runs with spaces/study/weird; rm -rf me"
 
 
 # --- identity ---------------------------------------------------------------
@@ -149,7 +170,7 @@ def test_preflight_reports_an_unreachable_host(monkeypatch):
         stdout = ""
         stderr = "ssh: connect to host class01 port 22: Operation timed out"
 
-    monkeypatch.setattr("autoopensn.runner.remote.subprocess.run", lambda *a, **k: Failed())
+    monkeypatch.setattr("autoopensn.runner.remote._run_process", lambda *a, **k: Failed())
     with pytest.raises(RunnerError, match="cannot reach"):
         RemoteRunner().preflight()
 
@@ -172,7 +193,7 @@ def test_preflight_reports_a_missing_module(monkeypatch):
             return Result(0)
         return Result(1, "Unable to locate a modulefile for 'opensn/gcc/15'")
 
-    monkeypatch.setattr("autoopensn.runner.remote.subprocess.run", fake_run)
+    monkeypatch.setattr("autoopensn.runner.remote._run_process", fake_run)
     with pytest.raises(RunnerError, match="environment did not load"):
         RemoteRunner().preflight()
 
@@ -192,7 +213,7 @@ def test_a_hanging_ssh_becomes_a_runner_error_not_a_crash(monkeypatch):
     def hang(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd=["ssh"], timeout=kwargs.get("timeout", 4))
 
-    monkeypatch.setattr("autoopensn.runner.remote.subprocess.run", hang)
+    monkeypatch.setattr("autoopensn.runner.remote._run_process", hang)
     with pytest.raises(RunnerError, match="did not respond"):
         RemoteRunner(connect_timeout=1).preflight()
 
@@ -206,8 +227,19 @@ def test_output_retrieval_failing_does_not_fail_the_run(tmp_path, monkeypatch):
     def hang(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd=["scp"], timeout=1)
 
-    monkeypatch.setattr("autoopensn.runner.remote.subprocess.run", hang)
+    monkeypatch.setattr("autoopensn.runner.remote._run_process", hang)
     runner = RemoteRunner(connect_timeout=1)
     request = request_for(tmp_path)
     request.write_inputs()
     runner._fetch(request)  # must not raise
+
+
+
+def test_the_suite_cannot_reach_a_cluster():
+    """Guards the guard: with no patch of its own, a test gets no connection.
+
+    If this ever fails, every test that leaves the runner on `auto` is
+    submitting real jobs to a shared compute node.
+    """
+    with pytest.raises(RunnerError):
+        RemoteRunner(connect_timeout=1).preflight()

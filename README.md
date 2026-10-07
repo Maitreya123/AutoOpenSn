@@ -72,7 +72,7 @@ Ollama and answers with whatever model that is serving.
 ## Checking the install
 
 ```shell
-pytest                                     # 559 tests, no OpenSn or network needed
+pytest                                     # no OpenSn, cluster, or network needed
 autoopensn run tests/data/gmres_convergence.yaml   # a real study, no key needed
 ```
 

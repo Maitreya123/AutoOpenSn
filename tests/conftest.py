@@ -18,6 +18,33 @@ DATA = TESTS / "data"
 FIXTURES = TESTS / "fixtures"
 
 
+@pytest.fixture(autouse=True)
+def no_cluster(monkeypatch):
+    """Forbid every test from reaching a real cluster.
+
+    The promise that this suite needs no network used to be kept by accident:
+    the cluster was unreachable, so the automatic runner choice always fell back
+    to the built-in solver. The day cluster access started working, the same
+    tests began submitting real jobs to a shared compute node, and a one-minute
+    suite ran for ten.
+
+    So the promise is enforced here instead. Every process the remote runner
+    starts goes through ``autoopensn.runner.remote._run_process``; this makes it
+    fail as if ssh were missing, which the runner turns into a RunnerError and
+    the automatic choice turns into a fallback. A test of the runner's own logic
+    patches the same name itself, and its patch, applied later, wins.
+
+    It must be that name and not ``subprocess.run``. Patching the latter
+    replaces the function in the one shared ``subprocess`` module, and with it
+    every other runner's ability to start a process.
+    """
+
+    def refuse(*args, **kwargs):
+        raise FileNotFoundError("the test suite does not reach the cluster")
+
+    monkeypatch.setattr("autoopensn.runner.remote._run_process", refuse)
+
+
 @pytest.fixture
 def data_dir() -> Path:
     return DATA

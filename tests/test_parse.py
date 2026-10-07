@@ -370,3 +370,31 @@ def test_a_final_summary_line_reports_a_solve_that_did_not_converge():
     observations = parse_stdout(text)
     assert observations.inner_status == "iteration_limit"
     assert observations.converged is False
+
+
+
+# --- real OpenSn output ------------------------------------------------------
+
+# Verbatim from the first run of reed_1d at defaults on a real OpenSn build
+# (commit 2fd4a19, GCC 15.2, MPICH 4.3.2, one rank). Every line carries the
+# rank prefix, which the hand-written fixtures did not.
+REAL_BALANCE_BLOCK = """\
+[0]  Balance table:
+[0]   Absorption rate             = 1.006178e+02
+[0]   Production rate             = 1.010000e+02
+[0]   In-flow rate                = 0.000000e+00
+[0]   Out-flow rate               = 3.821562e-01
+[0]   Balance                     = -1.084338e-11
+[0]  
+"""
+
+
+def test_balance_is_read_from_real_rank_prefixed_output():
+    observations = parse_stdout(REAL_BALANCE_BLOCK)
+    assert observations.balance_residual == pytest.approx(-1.084338e-11)
+
+
+def test_balance_is_still_read_without_a_rank_prefix():
+    """The fixtures omit the prefix; both shapes must parse."""
+    observations = parse_stdout("Balance table:\n Balance                     = 3.55e-15\n")
+    assert observations.balance_residual == pytest.approx(3.55e-15)

@@ -23,8 +23,12 @@ every number here as a shape, not a result.
 
 What is faithful, and what is not:
 
-**Faithful: the log formats.** Every line reproduces a format read out of the
-OpenSn source at commit `2fd4a19ceade4f8da581a5029c68f474d3333ccb`:
+**Faithful: the log formats — with one exception.** Real OpenSn prefixes every
+line with the MPI rank, `[0]  `, and these fixtures do not. That gap hid a parser
+bug: the balance pattern was anchored to the start of the line and never matched
+real output, which the first run on a real build exposed. The parser now accepts
+both shapes. Otherwise, every line reproduces a format read out of the OpenSn
+source at commit `2fd4a19ceade4f8da581a5029c68f474d3333ccb`:
 
 | Line | Source |
 | --- | --- |
