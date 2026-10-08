@@ -21,6 +21,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "httpx>=0.27"]
 api = ["fastapi>=0.110", "uvicorn[standard]>=0.27"]
+# The language-model stages. These are what the sister repository's LLM client
+# imports; its own requirements.txt also pulls in sentence-transformers, and
+# with it PyTorch, which nothing AutoOpenSn calls ever loads.
+llm = ["python-dotenv>=1.0", "tamu-chat>=0.1.0", "openai>=1.0", "groq>=0.36"]
 
 [project.scripts]
 autoopensn = "autoopensn.cli:main"

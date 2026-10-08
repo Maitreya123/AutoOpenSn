@@ -182,6 +182,30 @@ def reviewer(llm, enabled: Optional[bool] = None):
     return kp_reviewer.from_config(llm, enabled=enabled)
 
 
+ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+"""This repository's ``.env``: where the README tells people to put their key."""
+
+
+def load_own_env() -> Optional[Path]:
+    """Load this repository's ``.env`` into the environment, if it exists.
+
+    The sister client calls ``load_dotenv()`` with no path, which looks for the
+    file relative to wherever the process happens to be running. Started from
+    this repository that finds ``.env``; started from anywhere else it finds
+    nothing, and no key is set. So the file is loaded here, by its own path,
+    before the client is built. Existing environment variables win, which is
+    python-dotenv's default and the expected precedence for a shell export.
+    """
+    if not ENV_FILE.is_file():
+        return None
+    try:
+        from dotenv import load_dotenv  # noqa: PLC0415
+    except ImportError:
+        return None
+    load_dotenv(ENV_FILE, override=False)
+    return ENV_FILE
+
+
 def llm_client(quiet: bool = True):
     """The sister repository's ``LLMClient``.
 
@@ -195,6 +219,7 @@ def llm_client(quiet: bool = True):
     the client as ``startup_banner`` so a caller can still show it.
     """
     _ensure_importable()
+    load_own_env()
     from src.llm_client import LLMClient  # noqa: PLC0415
 
     if not quiet:

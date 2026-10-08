@@ -155,6 +155,20 @@ class ProviderLLM(LLM):
         except Exception as exc:
             raise LLMUnavailable(f"could not construct an LLM client: {exc}") from exc
 
+        # The sister client tries TAMU, then Groq, then OpenAI, and when it has
+        # no key for any of them it settles on a local Ollama without a word.
+        # That is how this project once spent a day reporting results from a
+        # local llama3.2 while everyone believed the TAMU key was in use. A
+        # missing key is a configuration error with a known fix, and it is
+        # reported as one. Using Ollama on purpose is one variable away.
+        if getattr(client, "provider", None) == "ollama" and not os.getenv("AUTOOPENSN_ALLOW_OLLAMA"):
+            raise LLMUnavailable(
+                "no API key was found, so the only model available is a local Ollama, "
+                "and that is not used without being asked for. Put TAMU_API_KEY in "
+                f"{kp_bridge.ENV_FILE} (copy .env.example), or set "
+                "AUTOOPENSN_ALLOW_OLLAMA=1 to use Ollama deliberately."
+            )
+
         models = kp_bridge.llm_models()
         return cls(
             client,

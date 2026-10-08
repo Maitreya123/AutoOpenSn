@@ -28,13 +28,17 @@ Every generated script records the OpenSn commit it was generated against.
 
 ## Installation
 
+You need **Python 3.11 or newer**, **Node.js 20.19+ or 22.12+** (the interface's
+build tool, Vite, refuses older versions), and git. A TAMU AI Chat API key, from
+<https://chat.tamu.ai>, for the two language-model steps.
+
 ```shell
 git clone https://github.com/Maitreya123/AutoOpenSn.git
 cd AutoOpenSn
 
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev,api]"
+pip install -e ".[dev,api,llm]"
 
 cd web && npm install && cd ..
 ```
@@ -50,6 +54,11 @@ prompt, and explaining the results — will do anything.
 git clone https://github.com/Maitreya123/Code_Assistant_OpenSn.git ../Code_assistant_TAU
 ```
 
+Clone it and stop there. **Do not install its `requirements.txt`**: that pulls in
+`sentence-transformers`, and with it PyTorch, which nothing AutoOpenSn calls
+ever loads; the `llm` extra above already installed the four packages its
+client does need.
+
 `../Code_assistant_TAU` is where AutoOpenSn looks by default; put it anywhere and
 set `AUTOOPENSN_KP_REPO` to that path instead. A plain clone is enough — the
 knowledge pack and the OpenSn checkout are excluded from that repository and are
@@ -61,24 +70,29 @@ matters.
 **2. An API key**, in a `.env` in *this* repository:
 
 ```shell
-cp .env.example .env     # then add your key
+cp .env.example .env     # then put your key after TAMU_API_KEY=
 ```
 
-It has to be here, not in the sister repository. The client resolves `.env`
-relative to the running process, so a key that works there is not found from
-here, and the failure is silent: the provider chain falls through to a local
-Ollama and answers with whatever model that is serving.
+AutoOpenSn reads this file by its own path, so it is found wherever you start
+the app from. It is in `.gitignore`; it is never committed.
+
+Without a key the language-model steps stop with a message saying where the key
+goes. They do not quietly fall back to whatever model happens to be running on
+the machine — set `AUTOOPENSN_ALLOW_OLLAMA=1` if a local Ollama is what you
+want.
 
 ## Checking the install
 
 ```shell
-pytest                                     # no OpenSn, cluster, or network needed
+pytest                                             # no OpenSn, cluster, or network needed
 autoopensn run tests/data/gmres_convergence.yaml   # a real study, no key needed
+autoopensn spec "compare GMRES tolerances 1e-4 and 1e-6"   # needs the key
 ```
 
-If the second prints a seven-row table, the deterministic half is working. If
-`autoopensn spec "compare GMRES tolerances 1e-4 and 1e-6"` also returns a spec,
-the model is wired up too.
+The first two need nothing but this repository. If the second prints a
+seven-row table, the deterministic half works. If the third prints a spec, the
+language model is wired up; if it says no API key was found, the `.env` step
+above is the one to look at.
 
 ## Running real OpenSn on the cluster
 
