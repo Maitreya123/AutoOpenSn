@@ -292,7 +292,7 @@ def create_app(
             "version": __version__,
             "pack_commit": PINNED_OPENSN_COMMIT,
             "llm_available": llm is not None or llm_module.available(),
-            "knowledge_pack_available": kp_bridge.available(),
+            "knowledge_pack_available": kp_bridge.pack_available(),
             "scenarios": len(catalog.load()),
         }
 

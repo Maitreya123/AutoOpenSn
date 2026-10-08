@@ -450,3 +450,12 @@ def test_a_provider_that_fails_mid_call_is_a_502(tmp_path, monkeypatch):
         "/api/explain", json={"table": [{"Case": "a", "Sweeps": 3}]}
     )
     assert response.status_code == 502
+
+
+def test_health_reports_the_pack_not_just_the_sister_code(client, monkeypatch):
+    """A fresh clone of the sister repository has its code and no pack."""
+    from autoopensn import kp_bridge
+
+    monkeypatch.setattr(kp_bridge, "available", lambda: True)
+    monkeypatch.setattr(kp_bridge, "pack_available", lambda *a, **k: False)
+    assert client.get("/api/health").json()["knowledge_pack_available"] is False
