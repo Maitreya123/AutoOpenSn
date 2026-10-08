@@ -70,6 +70,32 @@ def available() -> bool:
     return (root / "src" / "kp" / "search.py").exists()
 
 
+def pack_available(commit: str = PINNED_OPENSN_COMMIT) -> bool:
+    """Whether the knowledge pack for ``commit`` is on disk.
+
+    Separate from ``available``, which only asks whether the sister
+    repository's code is here. A plain clone of it has the code and neither the
+    pack nor the OpenSn checkout — both are excluded from its git — so a test
+    that needs the pack must ask about the pack. Asking ``available`` instead
+    made 48 tests fail on a fresh install that the README describes as
+    complete.
+    """
+    try:
+        pack_dir(commit)
+        return True
+    except BridgeError:
+        return False
+
+
+def checkout_available() -> bool:
+    """Whether the pinned OpenSn checkout is on disk. See ``pack_available``."""
+    try:
+        checkout_path()
+        return True
+    except BridgeError:
+        return False
+
+
 def require() -> Path:
     """Root of the sister repository, or a BridgeError explaining what to do."""
     root = repo_path()

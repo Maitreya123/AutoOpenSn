@@ -50,7 +50,7 @@ def test_cbc_render_matches_the_vendored_cbc_regression_script(
     assert rendered == vendored_reed_cbc, show(vendored_reed_cbc, rendered)
 
 
-@pytest.mark.skipif(not kp_bridge.available(), reason="sister repository not present")
+@pytest.mark.skipif(not kp_bridge.checkout_available(), reason="the OpenSn checkout is not present")
 def test_vendored_copy_is_current_with_the_pinned_checkout(vendored_reed):
     live = kp_bridge.test_script("reed_balance.py").read_text()
     assert vendored_reed == live, show(live, vendored_reed)

@@ -25,7 +25,7 @@ from autoopensn.tutorials.notebook import Notebook, NotebookError, script
 from autoopensn.tutorials.parameters import constraint_for, group_for
 
 needs_checkout = pytest.mark.skipif(
-    not kp_bridge.available(), reason="the OpenSn checkout is not present"
+    not kp_bridge.checkout_available(), reason="the OpenSn checkout is not present"
 )
 
 GENERATED = [

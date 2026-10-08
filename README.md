@@ -89,8 +89,11 @@ autoopensn run tests/data/gmres_convergence.yaml   # a real study, no key needed
 autoopensn spec "compare GMRES tolerances 1e-4 and 1e-6"   # needs the key
 ```
 
-The first two need nothing but this repository. If the second prints a
-seven-row table, the deterministic half works. If the third prints a spec, the
+The first two need nothing but this repository. `pytest` should report no
+failures; on a fresh install about fifty tests are skipped, and that is
+expected — they check the templates against the OpenSn source and the
+knowledge pack, neither of which a plain clone of the sister repository
+includes. If the second prints a seven-row table, the deterministic half works. If the third prints a spec, the
 language model is wired up; if it says no API key was found, the `.env` step
 above is the one to look at.
 

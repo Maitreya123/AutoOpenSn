@@ -21,6 +21,16 @@ needs_sister = pytest.mark.skipif(
     not kp_bridge.available(),
     reason="sister repository (Code_assistant_TAU) not present",
 )
+# Narrower than needs_sister, and they must be: a plain clone of the sister
+# repository has its code and neither of these, which the README says is fine.
+needs_pack = pytest.mark.skipif(
+    not kp_bridge.pack_available(),
+    reason="the knowledge pack is not built (it is not part of the sister repository's git)",
+)
+needs_checkout = pytest.mark.skipif(
+    not kp_bridge.checkout_available(),
+    reason="the OpenSn checkout is not present (it is not part of the sister repository's git)",
+)
 
 
 # --- the constraint ---------------------------------------------------------
@@ -99,12 +109,12 @@ def test_repo_path_is_overridable(monkeypatch, tmp_path):
 # --- the real pack ----------------------------------------------------------
 
 
-@needs_sister
+@needs_pack
 def test_manifest_records_the_pinned_commit():
     assert kp_bridge.pack_commit() == PINNED_OPENSN_COMMIT
 
 
-@needs_sister
+@needs_pack
 def test_searcher_returns_hits_for_gmres_restart_interval():
     """The deliverable: a PackSearcher over the pinned pack, without the model.
 
@@ -117,25 +127,25 @@ def test_searcher_returns_hits_for_gmres_restart_interval():
     assert any("gmres" in (hit.text or "").lower() for hit in hits)
 
 
-@needs_sister
+@needs_pack
 def test_searcher_is_cached():
     assert kp_bridge.searcher() is kp_bridge.searcher()
 
 
-@needs_sister
+@needs_pack
 def test_grounding_pairs_citations_with_text():
     grounding = kp_bridge.ground("inner_linear_method", k=3)
     assert len(grounding.citations) == len(grounding.excerpts)
     assert grounding.as_prompt_block()
 
 
-@needs_sister
+@needs_checkout
 def test_the_checkout_has_the_reed_regression_script():
     assert kp_bridge.test_script("reed_balance.py").exists()
     assert kp_bridge.tests_json_path().exists()
 
 
-@needs_sister
+@needs_pack
 def test_an_unknown_pack_commit_lists_what_is_present():
     with pytest.raises(kp_bridge.BridgeError) as excinfo:
         kp_bridge.pack_dir("0" * 40)
