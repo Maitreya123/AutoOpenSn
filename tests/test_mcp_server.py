@@ -131,6 +131,29 @@ def test_every_example_spec_validates(server, name):
     assert checked["case_count"] == 1
 
 
+def test_a_spec_without_num_procs_gets_the_scenarios_own(server):
+    """An 8-rank tutorial must not quietly run on one rank."""
+    multi = [s.name for s in catalog.load() if s.num_procs > 1]
+    assert multi, "the catalogue has no multi-rank scenario to check"
+    for name in multi:
+        example = call(server, "describe_scenario", {"name": name})["example_spec"]
+        assert example["num_procs"] > 1
+        del example["num_procs"]
+        checked = call(server, "validate_spec", {"spec": example})
+        assert checked["num_procs"] == example_ranks(name), name
+
+
+def test_an_explicit_num_procs_is_kept(server):
+    spec = {**GMRES_SPEC, "num_procs": 3}
+    assert call(server, "validate_spec", {"spec": spec})["num_procs"] == 3
+
+
+def example_ranks(name: str) -> int:
+    from autoopensn.templates import load_template
+
+    return load_template(name).num_procs
+
+
 def test_an_unknown_scenario_is_an_answer_not_a_crash(server):
     described = call(server, "describe_scenario", {"name": "no_such_problem"})
     assert described["ok"] is False

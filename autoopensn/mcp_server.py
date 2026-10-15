@@ -69,6 +69,7 @@ A spec is a JSON object:
                        in sweep values: every case's rel_flux_diff is measured
                        against it.
   observables          what to measure; must be among the scenario's observables
+  num_procs            MPI ranks per run; leave it out to use the scenario's own
 Each parameter goes under the section its "goes_under" field names. Values must
 be within the declared minimum/maximum or choices. At most {MAX_CASES} runs.
 Example sweep against a reference:
@@ -112,9 +113,13 @@ def _parse_spec(spec: dict[str, Any]) -> tuple[Optional[Spec], list[str]]:
     except TypeError as exc:
         return None, [f"spec: {exc}"]
     try:
-        parsed.validate_against()
+        template = parsed.validate_against()
     except (SpecError, TemplateError) as exc:
         return None, [str(exc)]
+    if "num_procs" not in spec:
+        # The scenario's own rank count, the one its gold values were recorded
+        # with. Spec's default of 1 would run an 8-rank tutorial on one rank.
+        parsed = parsed.model_copy(update={"num_procs": template.num_procs})
     return parsed, []
 
 
@@ -131,6 +136,7 @@ def _example_spec(name: str, template: Any) -> Optional[dict[str, Any]]:
         "solver": {},
         "sweep": [],
         "observables": list(template.observables),
+        "num_procs": template.num_procs,
     }
     parsed, errors = _parse_spec(example)
     return example if parsed is not None and not errors else None
@@ -231,6 +237,7 @@ def build_server(
             "observables": list(template.observables),
             "has_gold": bool(found.has_gold) if found else False,
             "runs_without_cluster": runs_in_reference_solver(template.name),
+            "num_procs": template.num_procs,
             "parameters": parameters,
             "example_spec": _example_spec(template.name, template),
             "spec_rules": SPEC_RULES,
@@ -250,6 +257,7 @@ def build_server(
             "ok": len(points) <= MAX_CASES,
             "errors": [],
             "case_count": len(points),
+            "num_procs": parsed.num_procs,
             "cases": [
                 {
                     "case_id": point.case_id,
