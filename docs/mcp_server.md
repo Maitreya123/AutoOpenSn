@@ -39,13 +39,19 @@ agent can act on, never as a run.
 | Tool | Does | Notes |
 | --- | --- | --- |
 | `list_scenarios(query, limit)` | The catalogue, ranked by `query` | `runs_without_cluster` marks the two scenarios the 1D reference solver supports; `has_gold` marks a recorded correct answer |
-| `describe_scenario(name)` | Every parameter with its group, type, default, range or choices, and meaning; the observables; `example_spec` | `goes_under` says whether a parameter belongs in `solver` or `template_parameters`. Every scenario's example is tested to validate |
+| `describe_scenario(name)` | Every parameter with its group, type, default, range or choices, and meaning; the observables; `num_procs`; `example_spec`; `spec_rules` | `goes_under` says whether a parameter belongs in `solver` or `template_parameters`. Every scenario's example is tested to validate |
 | `validate_spec(spec)` | Validates and lists the runs, running nothing | Errors are the validator's own messages, e.g. `l_abs_tol: 5.0 is above the declared maximum 0.01` |
 | `run_study(spec, engine)` | Validates, then starts the study in the background; returns `job_id` at once | `engine: "reference"` asks for the 1D solver regardless of the server's runner |
 | `get_results(job_id)` | Status, the last 20 progress lines, and when finished the full results table | `note` names the engine; `gold_passed` says whether a run matched OpenSn's recorded answer |
 
 A spec is the same object as a YAML spec file, as JSON. Studies are capped at
 200 runs (`MAX_CASES`), so one sentence cannot queue a thousand cluster jobs.
+
+A spec that leaves out `num_procs` runs on the scenario's own MPI rank count,
+the one its gold values were recorded with, rather than on `Spec`'s default of
+one; `glovebox`, `glovebox_adj`, `hdpe_example` and `pincell_example` are
+written for eight. An
+explicit `num_procs` is kept.
 
 ## Where studies run
 
@@ -182,3 +188,36 @@ times, then reported:
 with "Running real OpenSn on class01" as the engine. Its figures are the
 table's, plus absolute flux differences it computed from them (2.58e-6 and
 1.36e-8, both correct).
+
+Later the same day, through `ursa exec` and `scripts/ursa_tamu.py`, with
+`--runner remote`, three more plain-language questions:
+
+| Question | What the agent ran | Result on `class01` |
+| --- | --- | --- |
+| How does the maximum flux change as 2D angular quadrature is refined? | `first_2d_fixed_source`, `n_azimuthal` 4, 8, 16 | 0.9670, 0.9300, 0.9331; the default, 8, matches gold exactly |
+| Polyethylene moderation at default settings | `hdpe_example`, on 8 ranks | maximum flux 0.0782, matches gold (relative difference 1.6e-7) |
+| The CMFD tutorial's k-eigenvalue | `cmfd` | k = 1.15663057, matches gold exactly |
+
+### From a plain install
+
+Every run above used an editable install, which reads data from the source
+tree. A plain install from GitHub into a clean Python 3.11 environment showed
+that `tutorials/catalog.json` was not packaged, so `list_scenarios` returned no
+scenarios; `tests/test_packaging.py` now guards against that. From the fixed
+install, outside the repository, with a new server process for every call and
+`--runner remote`, every check passed:
+
+| Check | Result |
+| --- | --- |
+| `list_scenarios` | all 41 scenarios |
+| `describe_scenario("detector")` | 4 ranks, `has_gold`, an example spec with `num_procs: 4` |
+| `validate_spec` with a misplaced parameter | "'n_azimuthal' is a quadrature parameter; move it from 'solver' to 'template_parameters'" |
+| `run_study` with an unknown scenario | refused; no job |
+| `get_results` with an unknown job id | `ok: false` |
+| `first_2d_fixed_source`, `n_azimuthal` 4 and 8 | 10 s on `class01`; the default matches gold |
+| `detector` with `num_procs` left out | ran on 4 ranks in 33 s; matches gold |
+| `reed_1d` with `engine: "reference"` | ran locally, noted "Not OpenSn" |
+
+And URSA, starting the server from that install, asked which tutorial covers a
+point source, found `point_source` through `list_scenarios`, ran it on
+`class01`, and reported an absorption rate of 1.0, matching gold exactly.

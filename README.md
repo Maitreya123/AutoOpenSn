@@ -6,7 +6,9 @@ neutron transport code.
 You describe a study in plain language. AutoOpenSn turns that into a structured
 scenario spec, generates PyOpenSn input scripts from templates, runs them,
 parses the results into a table, and only then asks a language model to explain
-what the numbers show.
+what the numbers show. Another agent, such as LANL's
+[URSA](https://github.com/lanl/ursa), can also drive the deterministic stages
+itself, over MCP.
 
 ## The principle
 
@@ -38,7 +40,7 @@ cd AutoOpenSn
 
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev,api,llm]"
+pip install -e ".[dev,api,llm,mcp]"
 
 cd web && npm install && cd ..
 ```
@@ -111,7 +113,8 @@ scripts/setup_cluster.sh --netid <your NetID>
 It sets up your SSH access, builds OpenSn on class01, and finishes by running a
 real problem there and checking it against OpenSn's own recorded answer. You
 type your password once. About three minutes the first time; safe to rerun.
-After that the web page uses the cluster automatically whenever the VPN is up.
+After that the web page and `autoopensn mcp` use the cluster automatically
+whenever the VPN is up.
 Doing it by hand, and fixing it when it fails, is in
 [docs/running_opensn.md](docs/running_opensn.md).
 
@@ -179,14 +182,33 @@ The deterministic middle is also an MCP server, so an agent such as LANL's
 [URSA](https://github.com/lanl/ursa) or Claude Code can run studies itself:
 
 ```shell
-pip install -e ".[mcp]"
+pip install -e ".[mcp]"   # in a clone; or, without one:
+pip install "autoopensn[mcp] @ git+https://github.com/Maitreya123/AutoOpenSn.git"
 autoopensn mcp            # for the agent to start, not for you: stdout is the protocol
 ```
 
 The agent gets five tools: `list_scenarios`, `describe_scenario`,
 `validate_spec`, `run_study` and `get_results`. It writes the spec and explains
 the table, so **no language model runs in this server**: no API key, no sister
-repository. It still cannot run anything but a validated template. See
+repository. It still cannot run anything but a validated template. Studies run
+in their own process and are kept on disk, so they finish even when the agent
+starts a new server for every call, as URSA does.
+
+For URSA, add the server to its config:
+
+```yaml
+mcp_servers:
+  autoopensn:
+    transport: stdio
+    command: autoopensn
+    args: [mcp]
+```
+
+A step-by-step tutorial is proposed as an URSA example on
+[a fork of URSA](https://github.com/Maitreya123/ursa/tree/examples-opensn/examples/opensn).
+To use URSA with TAMU AI Chat as its model, start it through
+`scripts/ursa_tamu.py`, which works around a gateway incompatibility. Details,
+and what has been verified on the cluster, are in
 [docs/mcp_server.md](docs/mcp_server.md).
 
 ## The scenario library
