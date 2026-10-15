@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from autoopensn import PINNED_OPENSN_COMMIT, kp_bridge
+from autoopensn import PINNED_OPENSN_COMMIT
 from autoopensn.templates.registry import TEMPLATE_ROOT
 from autoopensn.tutorials import catalog
 from autoopensn.tutorials.catalog import Scenario
@@ -60,7 +60,15 @@ class BuildReport:
 
 def tutorials_root(checkout: Optional[Path] = None) -> Path:
     """Where the tutorials live in the pinned OpenSn checkout."""
-    root = Path(checkout) if checkout else kp_bridge.checkout_path()
+    if checkout:
+        root = Path(checkout)
+    else:
+        # Imported here, not at the top: this package is imported by everything
+        # that reads the catalog, including the MCP server, which must not load
+        # the module that also builds the language-model client.
+        from autoopensn import kp_bridge  # noqa: PLC0415
+
+        root = kp_bridge.checkout_path()
     path = root / TUTORIALS_RELATIVE
     if not path.is_dir():
         raise GenerationError(f"no tutorials directory at {path}")

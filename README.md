@@ -173,6 +173,22 @@ autoopensn serve                                               # the same, over 
 `spec` and `explain` are the two stages that call a language model. Everything
 between them is deterministic.
 
+### From another agent (MCP)
+
+The deterministic middle is also an MCP server, so an agent such as LANL's
+[URSA](https://github.com/lanl/ursa) or Claude Code can run studies itself:
+
+```shell
+pip install -e ".[mcp]"
+autoopensn mcp            # for the agent to start, not for you: stdout is the protocol
+```
+
+The agent gets five tools: `list_scenarios`, `describe_scenario`,
+`validate_spec`, `run_study` and `get_results`. It writes the spec and explains
+the table, so **no language model runs in this server**: no API key, no sister
+repository. It still cannot run anything but a validated template. See
+[docs/mcp_server.md](docs/mcp_server.md).
+
 ## The scenario library
 
 The scenarios are the OpenSn tutorials themselves. Every notebook under

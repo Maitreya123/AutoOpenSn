@@ -129,6 +129,31 @@ def serve(
 
 
 @app.command()
+def mcp(
+    runner: str = typer.Option("auto", help="'auto' uses the cluster when it answers and the 1D reference solver otherwise; 'remote' requires the cluster; 'reference' never leaves this machine."),
+    host: Optional[str] = typer.Option(None, help="SSH host for the cluster. Defaults to the 'class01' ssh alias."),
+    run_root: Path = typer.Option(Path("runs"), help="Where run directories are written."),
+    cache_path: Path = typer.Option(Path("runs/cache.db"), help="Run cache database."),
+) -> None:
+    """Serve the deterministic stages as MCP tools, over stdio.
+
+    For an agent such as URSA or Claude Code to start, not for a person to run
+    by hand: stdout carries the protocol. No language model runs here; the
+    calling agent writes the spec and explains the table.
+    """
+    if runner not in ("auto", "remote", "reference"):
+        _fail(f"unknown runner {runner!r}; expected 'auto', 'remote' or 'reference'")
+    try:
+        from autoopensn.mcp_server import main as serve_mcp  # noqa: PLC0415
+    except ImportError as exc:
+        _fail(
+            f"the MCP server needs the MCP SDK, which is not installed ({exc}).\n"
+            'Install it with: pip install -e ".[mcp]"'
+        )
+    serve_mcp(runner=runner, host=host, run_root=run_root, cache_path=cache_path)
+
+
+@app.command()
 def version() -> None:
     """Print the version and the pinned OpenSn commit."""
     typer.echo(f"autoopensn {__version__}")

@@ -40,22 +40,13 @@ from autoopensn.api.jobs import JobRegistry
 from autoopensn.llm import LLMError, LLMUnavailable
 from autoopensn.narrate import NarrationError, chat, explain, request_to_spec
 from autoopensn.parse.table import convergence_table
-from autoopensn.runner.remote import PROBE_TIMEOUT
-from autoopensn.runner import (
-    FakeRunner,
-    LocalMPIRunner,
-    ReferenceRunner,
-    RemoteRunner,
-    Runner,
-    RunnerError,
-)
+from autoopensn.runner import Runner, RunnerError
+from autoopensn.runner.select import UnknownRunner, build_runner
 from autoopensn.spec import Spec, SpecError
 from autoopensn.store import RunStore
 from autoopensn.study import render_points, run_study
 from autoopensn.templates import TemplateError, load_template
 from autoopensn.tutorials import catalog
-
-DEFAULT_FIXTURES = Path(__file__).resolve().parent.parent.parent / "tests" / "fixtures" / "reed_gmres"
 
 # Vite's dev server runs on its own port, so the browser's origin is not the
 # API's. Restricted to loopback: this app is a local tool, and a wildcard here
@@ -166,72 +157,20 @@ def _load_spec(spec_yaml: str) -> Spec:
     return spec
 
 
-def _choose_runner(host: Optional[str]) -> tuple[Runner, str]:
-    """Pick the best runner available, and say which and why.
+def _build_runner(kind: str, host: Optional[str], fixtures: Optional[str]) -> tuple[Runner, str]:
+    """The same runners the CLI offers, chosen by name, or 'auto'.
 
-    The interface does not ask. A person describing a physics study should not
-    have to know what a fixture replay is, and the right answer is almost always
-    "the cluster if you can reach it, this machine's own solver if you cannot".
-
-    What the interface must never do is run something and leave the person
-    guessing which engine produced the numbers, so the reason is returned
-    alongside and shown.
+    The choosing lives in ``runner.select``, shared with the MCP server. What is
+    left here is the status: a fixture directory that does not exist is a bad
+    request, a cluster or MPI that is not there is a service problem.
     """
     try:
-        # A short probe: this decides whether to use the cluster, and the person
-        # is looking at a spinner while it happens. The runner that actually
-        # runs gets the ordinary, patient timeout.
-        probe = RemoteRunner(host=host, connect_timeout=PROBE_TIMEOUT) if host else RemoteRunner(
-            connect_timeout=PROBE_TIMEOUT
-        )
-        probe.preflight()
-        return (
-            RemoteRunner(host=host) if host else RemoteRunner()
-        ), f"Running real OpenSn on {probe.host}."
+        return build_runner(kind, host, fixtures)
+    except UnknownRunner as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RunnerError as exc:
-        first_line = str(exc).strip().splitlines()[0]
-        return (
-            ReferenceRunner(strict=False),
-            "The cluster is not reachable, so this ran in AutoOpenSn's own 1D "
-            f"solver instead. These are not OpenSn's numbers. ({first_line})",
-        )
-
-
-def _build_runner(kind: str, host: Optional[str], fixtures: Optional[str]) -> tuple[Runner, str]:
-    """The same runners the CLI offers, chosen by name, or 'auto'."""
-    if kind == "auto":
-        return _choose_runner(host)
-    if kind == "reference":
-        # Not strict: a study touching an unsupported scenario reports those
-        # cases as unavailable rather than stopping the whole run.
-        return ReferenceRunner(strict=False), "AutoOpenSn's own 1D solver. Not OpenSn."
-    if kind == "remote":
-        remote = RemoteRunner(host=host) if host else RemoteRunner()
-        try:
-            remote.preflight()
-        except RunnerError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        return remote, f"Running real OpenSn on {remote.host}."
-    if kind == "fake":
-        try:
-            return (
-                FakeRunner(Path(fixtures) if fixtures else DEFAULT_FIXTURES),
-                "Replaying recorded output. Nothing was executed.",
-            )
-        except RunnerError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if kind == "local":
-        local = LocalMPIRunner()
-        try:
-            local.preflight()
-        except RunnerError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        return local, "Running real OpenSn on this machine."
-    raise HTTPException(
-        status_code=422,
-        detail=f"unknown runner {kind!r}; expected 'auto', 'reference', 'remote', "
-        "'fake' or 'local'",
-    )
+        status = 422 if kind == "fake" else 503
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 
 def _scenario_summary(scenario: Any) -> dict[str, Any]:
