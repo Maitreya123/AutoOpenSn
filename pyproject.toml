@@ -36,7 +36,7 @@ autoopensn = "autoopensn.cli:main"
 include = ["autoopensn*"]
 
 [tool.setuptools.package-data]
-autoopensn = ["templates/**/*.j2", "templates/**/*.yaml", "narrate/prompts/*.md"]
+autoopensn = ["templates/**/*.j2", "templates/**/*.yaml", "narrate/prompts/*.md", "tutorials/catalog.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
