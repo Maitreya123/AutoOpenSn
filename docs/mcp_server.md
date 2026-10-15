@@ -6,6 +6,8 @@ can run OpenSn studies without a person in between. It was built so that LANL's
 [URSA](https://github.com/lanl/ursa) can use AutoOpenSn, but any MCP client
 works, including Claude Code.
 
+To try it yourself, see [testing_mcp.md](testing_mcp.md).
+
 ## The split
 
 This package's rule is *LLM at the edges, deterministic in the middle*. The
