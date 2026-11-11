@@ -1,13 +1,12 @@
 /* AutoOpenSn — one column, four steps.
  *
- * Dark by default, light on request, both defined as complete palettes so no
+ * Light by default, dark on request, both defined as complete palettes so no
  * colour has its only definition inside a conditional block. The accent is
  * Texas A&M maroon; dark needs a brighter partner for text, because #500000 on
  * a near-black ground is unreadable while it remains perfectly good as a fill
  * behind white.
  */
 
-:root,
 :root[data-theme="dark"] {
   --bg: #100f0e;
   --panel: #1a1917;
@@ -41,6 +40,7 @@
   color-scheme: dark;
 }
 
+:root,
 :root[data-theme="light"] {
   --bg: #f6f4f1;
   --panel: #ffffff;

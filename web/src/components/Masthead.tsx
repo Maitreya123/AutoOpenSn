@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 
 type Theme = "dark" | "light";
-const STORAGE_KEY = "autoopensn.theme";
+// A new key, on purpose. The first version of this toggle saved the theme on
+// every page load, not only when someone chose one, so every browser that had
+// opened the app holds a "dark" it never asked for. Reading that key would keep
+// them dark after the default changed; only an explicit choice is saved now.
+const STORAGE_KEY = "autoopensn.theme.chosen";
 
 function stored(): Theme {
   // Wrapped because site data can be blocked outright, and a page that throws
@@ -12,7 +16,7 @@ function stored(): Theme {
   } catch {
     /* no stored preference available */
   }
-  return "dark";
+  return "light";
 }
 
 // A slab, five regions, a beam entering from the left: the Reed problem, which
@@ -67,19 +71,23 @@ export default function Masthead() {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
+  function choose(next: Theme) {
+    setTheme(next);
     try {
-      localStorage.setItem(STORAGE_KEY, theme);
+      localStorage.setItem(STORAGE_KEY, next);
     } catch {
       /* the page still works; the choice just will not persist */
     }
-  }, [theme]);
+  }
 
   return (
     <header className="masthead">
       <button
         type="button"
         className="theme-toggle"
-        onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+        onClick={() => choose(theme === "dark" ? "light" : "dark")}
         aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
         title={theme === "dark" ? "Light theme" : "Dark theme"}
       >
