@@ -520,3 +520,45 @@ def test_a_group_can_be_compared(client):
     _run_and_wait(client, GOOD_SPEC)
     body = client.get("/api/compare", params={"group": "reed_1d:l_abs_tol"}).json()
     assert len(body["studies"]) == 2 and body["charts"]
+
+
+# --- field pictures --------------------------------------------------------------
+
+
+def _study_with_a_field(client):
+    meshio = pytest.importorskip("meshio")
+    pytest.importorskip("matplotlib")
+    import numpy as np
+
+    job = _run_and_wait(client, GOOD_SPEC)
+    study = client.get(f"/api/studies/{job['study_id']}").json()
+    case = study["cases"][0]
+    from pathlib import Path
+
+    z = np.linspace(0, 1, 5)
+    meshio.Mesh(np.array([[0, 0, v] for v in z]), [("line", np.array([[i, i + 1] for i in range(4)]))],
+                point_data={"phi_g000_m00": z}).write(Path(case["directory"]) / "flux.vtu")
+    return job["study_id"], case["case_id"]
+
+
+def test_a_studys_field_files_are_listed(client):
+    study_id, case_id = _study_with_a_field(client)
+    listed = client.get(f"/api/studies/{study_id}/fields").json()["cases"]
+    assert [c["case_id"] for c in listed] == [case_id]
+    assert listed[0]["fields"][0]["path"] == "flux.vtu"
+
+
+def test_a_field_is_drawn_as_a_png(client):
+    study_id, case_id = _study_with_a_field(client)
+    response = client.get(f"/api/studies/{study_id}/fields/image",
+                          params={"case": case_id, "file": "flux.vtu"})
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content.startswith(b"\x89PNG")
+
+
+def test_a_field_request_cannot_leave_the_case_directory(client):
+    study_id, case_id = _study_with_a_field(client)
+    response = client.get(f"/api/studies/{study_id}/fields/image",
+                          params={"case": case_id, "file": "../../../../etc/hosts"})
+    assert response.status_code == 404

@@ -32,6 +32,7 @@ from typing import Any, Optional
 import pandas as pd
 import yaml
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -45,6 +46,7 @@ from autoopensn.runner.select import UnknownRunner, build_runner
 from autoopensn.spec import Spec, SpecError
 from autoopensn.store import Catalog, RunStore
 from autoopensn.viz.charts import comparison_chart, study_charts
+from autoopensn.viz import fields as field_files
 from autoopensn.study import render_points, run_study
 from autoopensn.templates import TemplateError, load_template
 from autoopensn.tutorials import catalog
@@ -438,6 +440,57 @@ def create_app(
         rows = [case["row"] for case in found["cases"]]
         grid = "sweep_mode: grid" in (found.get("spec_yaml") or "")
         return {"charts": study_charts(rows, found["swept"], grid=grid)}
+
+    def _case_directory(study_id: str, case_id: str) -> Path:
+        """A case's run directory, as the catalogue recorded it."""
+        with Catalog(app.state.store_path) as catalog:
+            found = catalog.study(study_id)
+        if found is None:
+            raise HTTPException(status_code=404, detail=f"no study {study_id!r}")
+        case = next((c for c in found["cases"] if c["case_id"] == case_id), None)
+        if case is None or not case.get("directory"):
+            raise HTTPException(status_code=404, detail=f"no case {case_id!r} in study {study_id!r}")
+        return Path(case["directory"])
+
+    def _field_path(study_id: str, case_id: str, file: str) -> Path:
+        try:
+            return field_files.resolve(_case_directory(study_id, case_id), file)
+        except field_files.FieldError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/studies/{study_id}/fields")
+    def study_fields(study_id: str) -> dict[str, Any]:
+        """Every field file each case of a study wrote: meshes, flux, profiles."""
+        with Catalog(app.state.store_path) as catalog:
+            found = catalog.study(study_id)
+        if found is None:
+            raise HTTPException(status_code=404, detail=f"no study {study_id!r}")
+        cases = []
+        for case in found["cases"]:
+            if not case.get("directory"):
+                continue
+            listed = field_files.find_fields(Path(case["directory"]))
+            if listed:
+                cases.append({"case_id": case["case_id"], "label": case["label"],
+                              "fields": [f.as_dict() for f in listed]})
+        return {"cases": cases}
+
+    @app.get("/api/studies/{study_id}/fields/image")
+    def field_image(study_id: str, case: str, file: str, array: Optional[str] = None) -> Response:
+        """One array of one field file, drawn as a PNG."""
+        path = _field_path(study_id, case, file)
+        try:
+            png = field_files.render(path, array)
+        except (field_files.FieldError, KeyError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=f"could not draw {file}: {exc}") from exc
+        return Response(png, media_type="image/png", headers={"Cache-Control": "max-age=300"})
+
+    @app.get("/api/studies/{study_id}/fields/chart")
+    def field_chart(study_id: str, case: str, file: str) -> dict[str, Any]:
+        """A field file's chart: the energy spectrum of a flux, or a line profile."""
+        path = _field_path(study_id, case, file)
+        chart = field_files.profile_chart(path) if path.suffix == ".csv" else field_files.spectrum_chart(path)
+        return {"chart": chart}
 
     @app.get("/api/compare")
     def compare(group: str, measure: str = "sweeps", limit: int = 6) -> dict[str, Any]:
