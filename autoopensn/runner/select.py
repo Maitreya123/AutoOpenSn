@@ -13,6 +13,7 @@ HTTP status or a tool error is the caller's business.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -21,12 +22,16 @@ from autoopensn.runner.fake import FakeRunner
 from autoopensn.runner.local_mpi import LocalMPIRunner
 from autoopensn.runner.reference import ReferenceRunner
 from autoopensn.runner.remote import PROBE_TIMEOUT, RemoteRunner
+from autoopensn.runner.slurm import SlurmRunner
 
 DEFAULT_FIXTURES = (
     Path(__file__).resolve().parent.parent.parent / "tests" / "fixtures" / "reed_gmres"
 )
 
-RUNNER_KINDS = ("auto", "reference", "remote", "fake", "local")
+RUNNER_KINDS = ("auto", "reference", "slurm", "remote", "fake", "local")
+
+SCHEDULER_ENV = "AUTOOPENSN_SCHEDULER"
+"""Set to "ssh" to have 'auto' skip SLURM and run cases directly over SSH."""
 
 
 class UnknownRunner(ValueError):
@@ -34,11 +39,28 @@ class UnknownRunner(ValueError):
 
 
 def choose_runner(host: Optional[str] = None) -> tuple[Runner, str]:
-    """The cluster if it answers, this machine's own solver if it does not.
+    """SLURM if the cluster's scheduler answers, then the node directly over SSH,
+    then this machine's own solver.
 
-    The probe is short because someone is waiting on it; the runner that
+    SLURM first because the cluster is shared: submitting through the scheduler
+    is how a study avoids landing on cores someone else is already using, and
+    its time limit ends a stuck run even if this side goes away. Direct SSH
+    remains for when the scheduler is unavailable, or when someone sets
+    AUTOOPENSN_SCHEDULER=ssh to skip it.
+
+    The probes are short because someone is waiting on them; the runner that
     actually runs gets the ordinary, patient timeout.
     """
+    if os.getenv(SCHEDULER_ENV, "slurm").lower() != "ssh" and not host:
+        try:
+            SlurmRunner(connect_timeout=PROBE_TIMEOUT).preflight()
+            runner = SlurmRunner()
+            return runner, (
+                f"Running real OpenSn through SLURM, partition {runner.partition} "
+                "(class01)."
+            )
+        except RunnerError:
+            pass  # fall through to direct SSH, which says why if it fails too
     try:
         probe = (
             RemoteRunner(host=host, connect_timeout=PROBE_TIMEOUT)
@@ -68,6 +90,10 @@ def build_runner(
         # Not strict: a study touching an unsupported scenario reports those
         # cases as unavailable rather than stopping the whole run.
         return ReferenceRunner(strict=False), "AutoOpenSn's own 1D solver. Not OpenSn."
+    if kind == "slurm":
+        slurm = SlurmRunner()
+        slurm.preflight()
+        return slurm, f"Running real OpenSn through SLURM, partition {slurm.partition}."
     if kind == "remote":
         remote = RemoteRunner(host=host) if host else RemoteRunner()
         remote.preflight()
@@ -82,6 +108,5 @@ def build_runner(
         local.preflight()
         return local, "Running real OpenSn on this machine."
     raise UnknownRunner(
-        f"unknown runner {kind!r}; expected 'auto', 'reference', 'remote', "
-        "'fake' or 'local'"
+        f"unknown runner {kind!r}; expected one of {', '.join(RUNNER_KINDS)}"
     )

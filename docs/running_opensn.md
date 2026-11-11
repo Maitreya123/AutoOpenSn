@@ -199,6 +199,39 @@ alike: it could not connect, or it connected and the module did not load. The
 second prints what it tried, because the usual cause is a module name that has
 moved.
 
+### Through SLURM, or directly
+
+Orchard runs SLURM (23.02), and its `orchard-class` partition is class01 by
+itself. When the cluster is reachable, studies go through the scheduler by
+default: each case is submitted with `sbatch` from the login node, polled with
+`squeue` until it leaves the queue, and read back with `sacct`. The direct
+route — SSH to class01 and run there — is the fallback, or the choice when
+`AUTOOPENSN_SCHEDULER=ssh` is set.
+
+Why the scheduler first: class01 is shared, and submitting is how a study
+avoids landing on cores someone else is already using. The job also carries a
+SLURM time limit, so a run that hangs is ended by the scheduler even if the
+machine that submitted it goes away; and if this side gives up waiting, it
+cancels the job rather than leaving it queued.
+
+Each case's row records the job id, the node, the state SLURM ended it in, and
+the seconds it spent queued — kept apart from the simulation's own time, never
+added to it.
+
+The default `orchard` partition is not used. Checked with
+`sbatch --test-only`, it offered this account a start in 2066.
+
+**Timings from the two routes are not interchangeable.** The simulation is
+timed the same way in both, around `mpiexec` on the node, but inside a SLURM
+job MPICH starts its ranks through SLURM, which adds a fixed couple of
+seconds: the Reed problem measured 2.6 s under SLURM against 0.85 s directly.
+The run cache keeps the two apart for that reason. Compare timings within one
+route.
+
+Checked on Orchard with three scenarios: `reed_1d` on one rank,
+`adjoint_example` on four, and `multiple_groupsets`, which needs cross-section
+data staged. All three matched OpenSn's recorded answers.
+
 ### When something fails
 
 Every one of these was hit for real while setting class01 up.

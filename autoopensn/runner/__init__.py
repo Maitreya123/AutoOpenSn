@@ -38,6 +38,7 @@ from autoopensn.runner.fake import FakeRunner, FixtureMissing
 from autoopensn.runner.local_mpi import LocalMPIRunner
 from autoopensn.runner.reference import ReferenceRunner, UnsupportedScenario, supported
 from autoopensn.runner.remote import RemoteRunner
+from autoopensn.runner.slurm import SlurmRunner
 
 __all__ = [
     "FakeRunner",
@@ -45,6 +46,7 @@ __all__ = [
     "LocalMPIRunner",
     "ReferenceRunner",
     "RemoteRunner",
+    "SlurmRunner",
     "RunRequest",
     "RunResult",
     "Runner",
