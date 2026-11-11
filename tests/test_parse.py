@@ -468,3 +468,55 @@ def test_a_study_where_everything_converged_keeps_its_four_columns():
     assert list(convergence_table(frame).columns) == [
         "Case", "Relative flux difference", "Sweeps", "Wall time (s)",
     ]
+
+
+# --- performance, as OpenSn reports it ----------------------------------------
+
+# Verbatim lines from hdpe_example on class01: eight ranks, 172 groups.
+REAL_PERFORMANCE = """\
+2026-10-07 16:52:56 Running OpenSn with 8 processes.
+[0]  Global cell count             : 100
+[0]  Number of groups    : 172
+[0]  Number of angles: 4
+[0]  00:00:00.1 Starting solver execution SteadyStateSourceSolver.
+[0]  00:00:00.7 WGS groups [0-171] avg_sweep_time = 2.032943e-03 s, sweep_time_per_unknown = 7.387148e+00 ns
+[0]  00:00:00.7 WGS groups [0-171] unknowns = 275200, lagged_unknowns = 8256, lagged_pct = 3.00
+[0]  00:00:00.7 Finished solver execution SteadyStateSourceSolver.
+Total peak host memory usage: 1.16965 GB
+Elapsed execution time: 00:00:02.2
+"""
+
+
+def test_performance_figures_are_read_from_real_output():
+    o = parse_stdout(REAL_PERFORMANCE)
+    assert o.avg_sweep_time == pytest.approx(2.032943e-3)
+    assert o.sweep_time_per_unknown_ns == pytest.approx(7.387148)
+    assert o.mpi_ranks == 8
+    assert o.peak_memory_gb == pytest.approx(1.16965)
+    assert o.opensn_elapsed == pytest.approx(2.2)
+    assert o.solve_time == pytest.approx(0.6)
+    assert (o.cells, o.groups, o.angles) == (100, 172, 4)
+
+
+def test_lagged_unknowns_are_not_counted_as_unknowns():
+    """`lagged_unknowns = 8256` sits on the same line as `unknowns = 275200`."""
+    assert parse_stdout(REAL_PERFORMANCE).unknowns == 275200
+
+
+def test_the_problem_size_figures_agree_with_each_other():
+    """cells x groups x angles x 4 nodes (linear discontinuous quads)."""
+    o = parse_stdout(REAL_PERFORMANCE)
+    assert o.cells * o.groups * o.angles * 4 == o.unknowns
+
+
+def test_performance_reaches_the_table_row():
+    """avg_sweep_time was parsed for months and never reached a column."""
+    row = parse_stdout(REAL_PERFORMANCE).as_row()
+    for column in ("avg_sweep_time", "sweep_time_per_unknown_ns", "peak_memory_gb", "unknowns"):
+        assert row[column] is not None
+
+
+def test_absent_figures_stay_absent():
+    """A log without them, such as the built-in solver's, leaves them empty."""
+    o = parse_stdout("WGS groups [0-0] iteration = 3, residual = 1e-9, status = converged\n")
+    assert o.peak_memory_gb is None and o.unknowns is None and o.solve_time is None

@@ -185,3 +185,53 @@ def test_cache_can_be_bypassed(tmp_path, gmres_spec, gmres_fixtures):
             gmres_spec, runner, run_root=tmp_path / "runs", store=store, use_cache=False
         )
     assert again.cache_hits == []
+
+
+# --- run metadata ---------------------------------------------------------------
+
+
+def _with_metadata(tmp_path):
+    from autoopensn.runner.base import RunResult
+
+    return RunResult(
+        case_id="c", exit_code=0, stdout="out", stderr="", wall_time=0.8,
+        directory=tmp_path, runner="slurm",
+        metadata={"slurm_job_id": "62435", "queue_wait": 1.5, "node": "nuen-orch-class001"},
+    )
+
+
+def test_metadata_survives_the_cache(tmp_path):
+    from autoopensn.store import RunStore
+
+    with RunStore(tmp_path / "cache.db") as store:
+        store.put("k", _with_metadata(tmp_path), script="x", pack_commit="p", runner_config={})
+        assert store.get("k").metadata["slurm_job_id"] == "62435"
+
+
+def test_metadata_survives_the_run_directory(tmp_path):
+    from autoopensn.runner.base import RunResult
+
+    _with_metadata(tmp_path).persist()
+    assert RunResult.from_directory(tmp_path).metadata["queue_wait"] == 1.5
+
+
+def test_a_cache_from_before_metadata_is_upgraded_not_lost(tmp_path):
+    """Existing runs/cache.db files have no metadata column."""
+    import sqlite3
+    from autoopensn.store import RunStore
+
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript("""
+        CREATE TABLE runs (key TEXT PRIMARY KEY, case_id TEXT NOT NULL, study TEXT,
+          pack_commit TEXT NOT NULL, script_sha TEXT NOT NULL, runner TEXT NOT NULL,
+          runner_config TEXT NOT NULL, exit_code INTEGER NOT NULL, wall_time REAL NOT NULL,
+          timed_out INTEGER NOT NULL DEFAULT 0, replayed INTEGER NOT NULL DEFAULT 0,
+          stdout TEXT NOT NULL, stderr TEXT NOT NULL, directory TEXT, created_at TEXT NOT NULL);
+        INSERT INTO runs VALUES ('old','c','s','p','sha','remote','{}',0,0.9,0,0,'out','','.','2026-10-07');
+    """)
+    old.commit(); old.close()
+    with RunStore(path) as store:
+        kept = store.get("old")
+        assert kept is not None and kept.wall_time == 0.9
+        assert kept.metadata == {}

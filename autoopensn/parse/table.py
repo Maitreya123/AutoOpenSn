@@ -44,6 +44,13 @@ def observe(
         "replayed": result.replayed,
     }
     row.update(observations.as_row())
+    row["runner"] = result.runner
+    # How the run was carried out — a SLURM job id, its time in the queue, the
+    # node — as the runner recorded it. Scalars only, and never over a column
+    # parsed from the output: stdout is the evidence, this is bookkeeping.
+    for name, value in (result.metadata or {}).items():
+        if name not in row and (value is None or isinstance(value, (str, int, float, bool))):
+            row[name] = value
 
     # Each scenario prints its own quantities, and its tests.json says which
     # ones upstream thought were worth checking. Those become columns too, so a

@@ -110,6 +110,10 @@ class RunResult:
     timed_out: bool = False
     replayed: bool = False
     started_at: Optional[str] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    """What the runner knows about how the run was carried out that is not in
+    the output: the SLURM job id and how long it queued, the node it ran on.
+    Kept apart from the parsed observables, which come only from stdout."""
 
     @property
     def ok(self) -> bool:
@@ -145,6 +149,7 @@ class RunResult:
             "timed_out": self.timed_out,
             "replayed": self.replayed,
             "started_at": self.started_at or datetime.now(timezone.utc).isoformat(),
+            "metadata": self.metadata,
         }
         path = directory / "result.json"
         path.write_text(json.dumps(record, indent=2))
@@ -174,6 +179,7 @@ class RunResult:
             timed_out=record.get("timed_out", False),
             replayed=record.get("replayed", False),
             started_at=record.get("started_at"),
+            metadata=record.get("metadata") or {},
         )
 
 

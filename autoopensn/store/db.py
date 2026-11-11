@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS runs (
     stdout       TEXT NOT NULL,
     stderr       TEXT NOT NULL,
     directory    TEXT,
-    created_at   TEXT NOT NULL
+    created_at   TEXT NOT NULL,
+    metadata     TEXT
 );
 CREATE INDEX IF NOT EXISTS runs_by_study ON runs (study, case_id);
 CREATE INDEX IF NOT EXISTS runs_by_commit ON runs (pack_commit);
@@ -95,6 +96,11 @@ class RunStore:
         self.connection.row_factory = sqlite3.Row
         with closing(self.connection.cursor()) as cursor:
             cursor.executescript(SCHEMA)
+            # Caches written before the metadata column existed: add it rather
+            # than ask anyone to delete runs/cache.db and lose every result.
+            columns = {row[1] for row in cursor.execute("PRAGMA table_info(runs)")}
+            if "metadata" not in columns:
+                cursor.execute("ALTER TABLE runs ADD COLUMN metadata TEXT")
         self.connection.commit()
 
     def __enter__(self) -> "RunStore":
@@ -124,6 +130,7 @@ class RunStore:
             timed_out=bool(row["timed_out"]),
             replayed=bool(row["replayed"]),
             started_at=row["created_at"],
+            metadata=json.loads(row["metadata"]) if row["metadata"] else {},
         )
 
     def __contains__(self, key: str) -> bool:
@@ -167,8 +174,9 @@ class RunStore:
             """
             INSERT OR REPLACE INTO runs
                 (key, case_id, study, pack_commit, script_sha, runner, runner_config,
-                 exit_code, wall_time, timed_out, replayed, stdout, stderr, directory, created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 exit_code, wall_time, timed_out, replayed, stdout, stderr, directory, created_at,
+                 metadata)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 key,
@@ -186,6 +194,7 @@ class RunStore:
                 result.stderr,
                 str(result.directory),
                 result.started_at or datetime.now(timezone.utc).isoformat(),
+                json.dumps(result.metadata, sort_keys=True, default=str),
             ),
         )
         self.connection.commit()

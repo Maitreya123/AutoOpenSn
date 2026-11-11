@@ -69,6 +69,23 @@ BALANCE_LINE = re.compile(
 SWEEPS_LOGGED = re.compile(rf"\bsweeps\s*=\s*(?P<value>\d+)")
 AVG_SWEEP_TIME = re.compile(rf"avg_sweep_time\s*=\s*(?P<value>{NUMBER})\s*s\b")
 
+# Performance and problem size, as OpenSn reports them about itself. Every one
+# was read off a real run on class01 (hdpe_example, eight ranks, 172 groups);
+# the hand-written fixtures had none of them, which is why none were parsed.
+SWEEP_TIME_PER_UNKNOWN = re.compile(
+    rf"sweep_time_per_unknown\s*=\s*(?P<value>{NUMBER})\s*ns\b"
+)
+UNKNOWNS = re.compile(r"(?<![A-Za-z_])unknowns\s*=\s*(?P<value>\d+)")
+MPI_RANKS = re.compile(r"Running OpenSn with (?P<value>\d+) process")
+PEAK_MEMORY = re.compile(rf"Total peak host memory usage:\s*(?P<value>{NUMBER})\s*GB")
+ELAPSED = re.compile(r"Elapsed execution time:\s*(?P<h>\d+):(?P<m>\d+):(?P<s>\d+(?:\.\d+)?)")
+CELLS = re.compile(r"Global cell count\s*:\s*(?P<value>\d+)")
+GROUPS = re.compile(r"Number of groups\s*:\s*(?P<value>\d+)")
+ANGLES = re.compile(r"Number of angles\s*:\s*(?P<value>\d+)")
+SOLVER_CLOCK = re.compile(
+    r"(?P<h>\d+):(?P<m>\d+):(?P<s>\d+(?:\.\d+)?) (?P<event>Starting|Finished) solver execution"
+)
+
 
 class ParseError(Exception):
     """Output did not contain something the caller required."""
@@ -120,6 +137,20 @@ class Observations:
     outflow_rate: Optional[float] = None
     inner_status: Optional[str] = None
     avg_sweep_time: Optional[float] = None
+    """Seconds per transport sweep, averaged by OpenSn."""
+    sweep_time_per_unknown_ns: Optional[float] = None
+    """Nanoseconds per unknown per sweep: the figure that compares across sizes."""
+    unknowns: Optional[int] = None
+    mpi_ranks: Optional[int] = None
+    peak_memory_gb: Optional[float] = None
+    opensn_elapsed: Optional[float] = None
+    """OpenSn's own total, in seconds. Printed to a tenth of a second."""
+    solve_time: Optional[float] = None
+    """Seconds between "Starting" and "Finished solver execution", summed over
+    solvers. Same tenth-of-a-second resolution as the log's clock."""
+    cells: Optional[int] = None
+    groups: Optional[int] = None
+    angles: Optional[int] = None
     converged: Optional[bool] = None
     solve_blocks: tuple[int, ...] = field(default_factory=tuple)
     """Inner iteration count of each groupset solve, in order."""
@@ -136,6 +167,16 @@ class Observations:
             "outflow_rate": self.outflow_rate,
             "inner_status": self.inner_status,
             "converged": self.converged,
+            "avg_sweep_time": self.avg_sweep_time,
+            "sweep_time_per_unknown_ns": self.sweep_time_per_unknown_ns,
+            "unknowns": self.unknowns,
+            "mpi_ranks": self.mpi_ranks,
+            "peak_memory_gb": self.peak_memory_gb,
+            "opensn_elapsed": self.opensn_elapsed,
+            "solve_time": self.solve_time,
+            "cells": self.cells,
+            "groups": self.groups,
+            "angles": self.angles,
         }
 
 
@@ -234,4 +275,46 @@ def parse_stdout(text: str) -> Observations:
     if status is not None:
         observations.converged = status == "converged"
 
+    _read_performance(text, observations)
     return observations
+
+
+def _clock(h: str, m: str, s: str) -> float:
+    return int(h) * 3600 + int(m) * 60 + float(s)
+
+
+def _read_performance(text: str, observations: Observations) -> None:
+    """Fill in the performance and problem-size fields, where OpenSn printed them."""
+    match = SWEEP_TIME_PER_UNKNOWN.search(text)
+    if match:
+        observations.sweep_time_per_unknown_ns = _to_float(match.group("value"))
+    # One line per groupset; a problem with several groupsets has the sum.
+    # The same groupset solved twice repeats its line, so each distinct value
+    # is counted once — imperfect for two equal groupsets, and the better error
+    # to make than doubling every repeated solve.
+    sizes = {int(m.group("value")) for m in UNKNOWNS.finditer(text)}
+    if sizes:
+        observations.unknowns = sum(sizes)
+    for pattern, name, cast in (
+        (MPI_RANKS, "mpi_ranks", int),
+        (PEAK_MEMORY, "peak_memory_gb", _to_float),
+        (CELLS, "cells", int),
+        (GROUPS, "groups", int),
+        (ANGLES, "angles", int),
+    ):
+        found = pattern.search(text)
+        if found:
+            setattr(observations, name, cast(found.group("value")))
+    elapsed = ELAPSED.search(text)
+    if elapsed:
+        observations.opensn_elapsed = _clock(elapsed.group("h"), elapsed.group("m"), elapsed.group("s"))
+    total, started = 0.0, None
+    for event in SOLVER_CLOCK.finditer(text):
+        at = _clock(event.group("h"), event.group("m"), event.group("s"))
+        if event.group("event") == "Starting":
+            started = at
+        elif started is not None:
+            total += max(0.0, at - started)
+            started = None
+    if total or any(e.group("event") == "Finished" for e in SOLVER_CLOCK.finditer(text)):
+        observations.solve_time = round(total, 3)
