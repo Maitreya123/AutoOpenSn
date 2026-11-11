@@ -88,6 +88,14 @@ recorded here rather than made there, per the brief.
    gets silence rather than an error. Reading both, and preferring the correct
    spelling, would fix it without breaking existing setups.
 
+6. **Replace the retired Groq fallback model.** `LLMClient` falls back to Groq's
+   `llama-3.3-70b-versatile`, which Groq no longer serves: as of 2026-11-11 a
+   request for it returns `404 model_not_found`. So when the TAMU key fails
+   there is no working fallback, and the error a user sees names TAMU while
+   the fallback's failure goes unmentioned. The model name should come from
+   configuration rather than code, so a retirement is an edit to `.env` and
+   not a release.
+
 None of these block a working pipeline.
 
 ## How the reviewer is used
