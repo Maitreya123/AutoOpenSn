@@ -40,7 +40,7 @@ cd AutoOpenSn
 
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev,api,llm,mcp]"
+pip install -e ".[dev,api,llm,mcp,viz]"
 
 cd web && npm install && cd ..
 ```
@@ -114,7 +114,9 @@ It sets up your SSH access, builds OpenSn on class01, and finishes by running a
 real problem there and checking it against OpenSn's own recorded answer. You
 type your password once. About three minutes the first time; safe to rerun.
 After that the web page and `autoopensn mcp` use the cluster automatically
-whenever the VPN is up.
+whenever the VPN is up, submitting each case **through SLURM** to the
+`orchard-class` partition (class01), and running it directly over SSH only if
+the scheduler cannot be reached. Set `AUTOOPENSN_SCHEDULER=ssh` to skip SLURM.
 Doing it by hand, and fixing it when it fails, is in
 [docs/running_opensn.md](docs/running_opensn.md).
 
@@ -140,6 +142,25 @@ configure:
 2. **Read the spec** it wrote, and download it as YAML or JSON.
 3. **Run it**, watching each case complete.
 4. **Read what the numbers show**, and ask follow-up questions.
+
+Under the results of step 3 the page also shows:
+
+- **Charts** worked out from the study itself: a line chart for a varied
+  number (log axis for tolerances), a bar chart for a varied choice, a heatmap
+  for a grid, with unconverged cases marked.
+- **The fields the simulation wrote**: flux on the mesh, material regions and
+  MPI partitions, a multigroup flux's energy spectrum, line profiles.
+- **A comparison with earlier studies** that varied the same parameters on the
+  same scenario, when there are any.
+
+Below the four steps, **Earlier studies** lists every study in the catalogue —
+spec, engine, every case's results and performance — to reopen or compare.
+See [docs/visualization.md](docs/visualization.md) for how the charts and
+pictures are chosen, and the alternatives considered.
+
+Every case records how it ran as well as what it found: simulation time on the
+node, OpenSn's solve time, time per sweep and per unknown, peak memory, MPI
+ranks, problem size, and under SLURM the job ID, node and time spent queued.
 
 The engine's options — which runner, whether to use the cache, where the
 fixtures are — are not on the screen. They are in the API and the CLI, where
