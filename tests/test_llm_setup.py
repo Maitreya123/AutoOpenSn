@@ -92,3 +92,44 @@ def test_the_llm_extra_lists_what_the_client_imports():
     for package in ("python-dotenv", "tamu-chat", "openai", "groq"):
         assert package in llm
     assert "sentence-transformers" not in llm and "torch" not in llm
+
+
+def test_the_health_check_never_loads_the_sister_repositorys_key(tmp_path, monkeypatch):
+    """It used to, before the first model call, and that key then won.
+
+    Whichever .env loads first wins, because neither overrides a value already
+    set. A key renewed in this repository's .env was rejected by TAMU while the
+    health check had quietly loaded the stale one from the sister repository.
+    """
+    pytest.importorskip("dotenv")
+    import os
+    from autoopensn import llm
+
+    sister = tmp_path / "sister"
+    sister.mkdir()
+    (sister / ".env").write_text("AUTOOPENSN_TEST_KEY_ORDER=stale-sister-key\n")
+    ours = tmp_path / "ours.env"
+    ours.write_text("AUTOOPENSN_TEST_KEY_ORDER=fresh-key\n")
+    monkeypatch.setattr(kp_bridge, "repo_path", lambda: sister)
+    monkeypatch.setattr(kp_bridge, "available", lambda: True)
+    monkeypatch.setattr(kp_bridge, "ENV_FILE", ours)
+    monkeypatch.delenv("AUTOOPENSN_TEST_KEY_ORDER", raising=False)
+
+    llm.available()
+    assert os.environ["AUTOOPENSN_TEST_KEY_ORDER"] == "fresh-key"
+    monkeypatch.delenv("AUTOOPENSN_TEST_KEY_ORDER")
+
+
+def test_our_env_is_loaded_before_any_sister_import(tmp_path, monkeypatch):
+    """The gateway every sister import passes through loads ours first."""
+    pytest.importorskip("dotenv")
+    import os
+
+    ours = tmp_path / "ours.env"
+    ours.write_text("AUTOOPENSN_TEST_GATEWAY=ours\n")
+    monkeypatch.setattr(kp_bridge, "ENV_FILE", ours)
+    monkeypatch.setattr(kp_bridge, "require", lambda: tmp_path)
+    monkeypatch.delenv("AUTOOPENSN_TEST_GATEWAY", raising=False)
+    kp_bridge._ensure_importable()
+    assert os.environ["AUTOOPENSN_TEST_GATEWAY"] == "ours"
+    monkeypatch.delenv("AUTOOPENSN_TEST_GATEWAY")

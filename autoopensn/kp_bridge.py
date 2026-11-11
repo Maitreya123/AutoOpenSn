@@ -115,6 +115,11 @@ def _ensure_importable() -> Path:
     ``src.kp.*``, so its *root* goes on the path, not its ``src`` directory.
     """
     root = require()
+    # Before anything of the sister repository's is imported: its LLM client
+    # loads a .env of its own on import, and whichever file loads first wins,
+    # because neither overrides a value already set. Loading ours here, at the
+    # one gateway every sister import passes through, means ours always does.
+    load_own_env()
     entry = str(root)
     if entry not in sys.path:
         # Appended, not inserted: a package named ``src`` on the front of the

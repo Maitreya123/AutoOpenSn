@@ -310,12 +310,12 @@ def available() -> bool:
     if not kp_bridge.available():
         return False
     keys = ("TAMU_assintant_key", "TAMU_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY")
-    try:
-        from dotenv import load_dotenv  # noqa: PLC0415
-
-        load_dotenv(kp_bridge.repo_path() / ".env")
-    except Exception:
-        pass
+    # This repository's .env, never the sister repository's. This function
+    # used to load the sister's, from when the key lived there; called by the
+    # health check before the first model call, it put the sister's key into
+    # the environment first, and since nothing overrides a value already set,
+    # a key renewed in this repository's .env was never used.
+    kp_bridge.load_own_env()
     return any(
         os.getenv(key) and not str(os.getenv(key)).startswith("your-") for key in keys
     )
