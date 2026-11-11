@@ -43,7 +43,7 @@ from autoopensn.parse.table import convergence_table
 from autoopensn.runner import Runner, RunnerError
 from autoopensn.runner.select import UnknownRunner, build_runner
 from autoopensn.spec import Spec, SpecError
-from autoopensn.store import RunStore
+from autoopensn.store import Catalog, RunStore
 from autoopensn.study import render_points, run_study
 from autoopensn.templates import TemplateError, load_template
 from autoopensn.tutorials import catalog
@@ -78,7 +78,10 @@ class RunRequestBody(SpecYaml):
     host: Optional[str] = None
     fixtures: Optional[str] = None
     use_cache: bool = True
-    run_root: str = "runs"
+    run_root: Optional[str] = None
+    """Where run directories go. Defaults to the app's own run root; it used to
+    default to "runs" relative to the working directory, which sent every test
+    that started a study into the repository's real runs/ folder."""
 
 
 class ExplainRequest(BaseModel):
@@ -194,6 +197,7 @@ def create_app(
     *,
     llm: Any = None,
     store: Optional[RunStore] = None,
+    store_path: Optional[Path] = None,
     registry: Optional[JobRegistry] = None,
     run_root: Path = Path("runs"),
 ) -> FastAPI:
@@ -217,7 +221,13 @@ def create_app(
 
     jobs = registry or JobRegistry()
     app.state.jobs = jobs
-    app.state.store = store
+    # A path, not a connection. Studies run on worker threads and SQLite will
+    # not share a connection between threads, so each study and each request
+    # opens its own. Until this existed the app was built with no store at all,
+    # and the web page never used the run cache: every study re-ran every case.
+    app.state.store_path = Path(store.path) if store is not None else (
+        Path(store_path) if store_path else Path(run_root) / "cache.db"
+    )
     app.state.run_root = Path(run_root)
 
     # --- status ---
@@ -360,23 +370,26 @@ def create_app(
         spec = _load_spec(body.spec_yaml)
         runner, note = _build_runner(body.runner, body.host, body.fixtures)
         points = len(spec.expand())
-        current_store = app.state.store
+        store_path = app.state.store_path
 
         def work(say):
-            result = run_study(
-                spec,
-                runner,
-                run_root=Path(body.run_root),
-                store=current_store,
-                use_cache=body.use_cache,
-                progress=say,
-            )
+            with RunStore(store_path) as store:
+                result = run_study(
+                    spec,
+                    runner,
+                    run_root=Path(body.run_root) if body.run_root else app.state.run_root,
+                    store=store,
+                    use_cache=body.use_cache,
+                    progress=say,
+                    engine_note=note,
+                )
             table = convergence_table(result.table)
             return {
                 "table": _jsonable(table),
                 "summary": result.summary(),
                 "run_root": str(result.run_root),
                 "cache_hits": list(result.cache_hits),
+                "study_id": result.study_id,
             }
 
         job = jobs.start(
@@ -389,6 +402,29 @@ def create_app(
             "runner": runner.name,
             "note": note,
         }
+
+    # --- the catalogue ---
+
+    @app.get("/api/studies")
+    def list_studies(group: Optional[str] = None, template: Optional[str] = None, limit: int = 50) -> dict[str, Any]:
+        """Studies run so far, most recent first."""
+        with Catalog(app.state.store_path) as catalog:
+            return {"studies": catalog.studies(group=group, template=template, limit=limit)}
+
+    @app.get("/api/studies/{study_id}")
+    def get_study(study_id: str) -> dict[str, Any]:
+        """One study with every case's full results row."""
+        with Catalog(app.state.store_path) as catalog:
+            found = catalog.study(study_id)
+        if found is None:
+            raise HTTPException(status_code=404, detail=f"no study {study_id!r}")
+        return found
+
+    @app.get("/api/groups")
+    def list_groups() -> dict[str, Any]:
+        """Comparison groups: studies of one scenario varying the same parameters."""
+        with Catalog(app.state.store_path) as catalog:
+            return {"groups": catalog.groups()}
 
     @app.get("/api/runs")
     def list_runs() -> dict[str, Any]:

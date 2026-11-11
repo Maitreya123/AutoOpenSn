@@ -20,6 +20,7 @@ from autoopensn.runner.base import RunRequest, RunResult, Runner, RunnerError, r
 from autoopensn.runner.fake import FixtureMissing
 from autoopensn.runner.reference import UnsupportedScenario
 from autoopensn.spec.model import Spec, SweepPoint
+from autoopensn.store.catalog import Catalog
 from autoopensn.store.db import RunStore, cache_key
 from autoopensn.templates import Template, render_run_script
 
@@ -48,6 +49,8 @@ class StudyResult:
     table: pd.DataFrame
     cache_hits: list[str] = field(default_factory=list)
     run_root: Optional[Path] = None
+    study_id: Optional[str] = None
+    """The study's id in the catalogue, when it was recorded in one."""
 
     @property
     def failures(self) -> list[RunResult]:
@@ -140,8 +143,14 @@ def run_study(
     use_cache: bool = True,
     progress: Optional[Progress] = None,
     tests_json: Optional[Path] = None,
+    engine_note: Optional[str] = None,
 ) -> StudyResult:
-    """Render, run, cache, and tabulate every point of a spec."""
+    """Render, run, cache, and tabulate every point of a spec.
+
+    With a store, the study is also recorded in the catalogue that shares its
+    file, so it can be found and compared later; ``engine_note`` is the
+    sentence saying which engine produced the numbers, kept with the record.
+    """
     template = template or spec.validate_against()
     run_id = run_id or spec.name
     say: Progress = progress or (lambda _message: None)
@@ -152,10 +161,12 @@ def run_study(
 
     results: list[RunResult] = []
     cache_hits: list[str] = []
+    run_keys: dict[str, str] = {}
 
     for index, rendered in enumerate(rendered_points, start=1):
         label = f"[{index}/{len(rendered_points)}] {rendered.case_id}"
         key = cache_key(rendered.script, spec.pack_commit, runner_config)
+        run_keys[rendered.case_id] = key
 
         if use_cache and store is not None:
             cached = store.get(key)
@@ -195,6 +206,20 @@ def run_study(
     points = [rendered.point for rendered in rendered_points]
     table = results_table(results, points, template, tests_json=tests_json)
 
+    study_id = None
+    if store is not None:
+        with Catalog(store.path) as catalog:
+            study_id = catalog.record(
+                spec=spec,
+                rows=table.to_dict(orient="records"),
+                runner=getattr(runner, "name", "runner"),
+                runner_config=runner_config,
+                engine_note=engine_note,
+                run_keys=run_keys,
+                directories={r.case_id: str(r.directory) for r in results},
+                cache_hits=len(cache_hits),
+            )
+
     return StudyResult(
         spec=spec,
         points=points,
@@ -202,6 +227,7 @@ def run_study(
         table=table,
         cache_hits=cache_hits,
         run_root=Path(run_root) / run_id,
+        study_id=study_id,
     )
 
 

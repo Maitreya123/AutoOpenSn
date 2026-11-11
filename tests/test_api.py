@@ -459,3 +459,45 @@ def test_health_reports_the_pack_not_just_the_sister_code(client, monkeypatch):
     monkeypatch.setattr(kp_bridge, "available", lambda: True)
     monkeypatch.setattr(kp_bridge, "pack_available", lambda *a, **k: False)
     assert client.get("/api/health").json()["knowledge_pack_available"] is False
+
+
+# --- the catalogue and the cache, through the page's API -------------------------
+
+
+def _run_and_wait(client, spec_yaml, **extra):
+    started = client.post("/api/runs", json={"spec_yaml": spec_yaml, "runner": "reference", **extra}).json()
+    return wait_for(client, started["id"])
+
+
+def test_the_page_now_uses_the_run_cache(client):
+    """The app used to be built with no store: every study re-ran every case."""
+    first = _run_and_wait(client, GOOD_SPEC)
+    second = _run_and_wait(client, GOOD_SPEC)
+    assert first["cache_hits"] == []
+    assert len(second["cache_hits"]) == 3
+
+
+def test_a_finished_study_is_in_the_catalogue(client):
+    job = _run_and_wait(client, GOOD_SPEC)
+    assert job["study_id"]
+    listed = client.get("/api/studies").json()["studies"]
+    assert any(s["id"] == job["study_id"] for s in listed)
+    study = client.get(f"/api/studies/{job['study_id']}").json()
+    assert len(study["cases"]) == 3
+    assert study["engine_note"] == "AutoOpenSn's own 1D solver. Not OpenSn."
+
+
+def test_groups_are_served(client):
+    _run_and_wait(client, GOOD_SPEC)
+    groups = client.get("/api/groups").json()["groups"]
+    assert groups[0]["group_key"] == "reed_1d:l_abs_tol"
+
+
+def test_an_unknown_study_is_a_404(client):
+    assert client.get("/api/studies/nope").status_code == 404
+
+
+def test_run_directories_stay_inside_the_apps_run_root(client, tmp_path):
+    """They used to land in the repository's own runs/ folder."""
+    _run_and_wait(client, GOOD_SPEC)
+    assert (tmp_path / "runs" / "tolerance_study").is_dir()

@@ -61,6 +61,8 @@ class Job:
     table: Optional[list[dict[str, Any]]] = None
     summary: Optional[str] = None
     run_root: Optional[str] = None
+    study_id: Optional[str] = None
+    """The study's id in the catalogue once it has finished and been recorded."""
     cache_hits: list[str] = field(default_factory=list)
     label: str = ""
     """What the study was, for a UI listing jobs without re-reading the spec."""
@@ -89,6 +91,7 @@ class Job:
             "cache_hits": list(self.cache_hits),
             "label": self.label,
             "note": self.note,
+            "study_id": self.study_id,
         }
         if include_table:
             record["table"] = self.table
