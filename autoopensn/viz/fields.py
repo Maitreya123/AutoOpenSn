@@ -430,7 +430,8 @@ def spectrum_chart(path: Path, moment: str = "00") -> Optional[dict[str, Any]]:
         "title": {"text": f"Flux by energy group ({len(groups)} groups)", "anchor": "start"},
         "width": 520, "height": 220,
         "data": {"values": sorted(groups, key=lambda g: g["group"])},
-        "mark": {"type": "line", "point": {"filled": True, "size": 25}, "color": "#7c1d1d"},
+        "mark": {"type": "line", "color": "#7c1d1d",
+                 "point": {"filled": True, "size": 25, "color": "#7c1d1d"}},
         "encoding": {
             "x": {"field": "group", "type": "quantitative", "title": "Energy group (0 = highest energy)"},
             "y": {"field": "flux", "type": "quantitative", "title": "Mean scalar flux over points",

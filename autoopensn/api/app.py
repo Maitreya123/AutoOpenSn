@@ -44,7 +44,7 @@ from autoopensn.parse.table import convergence_table
 from autoopensn.runner import Runner, RunnerError
 from autoopensn.runner.select import UnknownRunner, build_runner
 from autoopensn.spec import Spec, SpecError
-from autoopensn.store import Catalog, RunStore
+from autoopensn.store import Catalog, RunStore, group_key
 from autoopensn.viz.charts import comparison_chart, study_charts
 from autoopensn.viz import fields as field_files
 from autoopensn.study import render_points, run_study
@@ -393,6 +393,7 @@ def create_app(
                 "run_root": str(result.run_root),
                 "cache_hits": list(result.cache_hits),
                 "study_id": result.study_id,
+                "group": group_key(spec.template, [d.parameter for d in spec.sweep]),
                 # Worked out from the full table, not the four-column view, so
                 # performance figures can be charted as well as the results.
                 "charts": study_charts(

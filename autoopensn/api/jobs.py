@@ -63,6 +63,8 @@ class Job:
     run_root: Optional[str] = None
     study_id: Optional[str] = None
     """The study's id in the catalogue once it has finished and been recorded."""
+    group: Optional[str] = None
+    """The study's comparison group: its scenario and the parameters it varied."""
     charts: Optional[list[dict[str, Any]]] = None
     """Vega-Lite specifications of the study's results, once it has finished."""
     cache_hits: list[str] = field(default_factory=list)
@@ -94,6 +96,7 @@ class Job:
             "label": self.label,
             "note": self.note,
             "study_id": self.study_id,
+            "group": self.group,
         }
         if include_table:
             record["table"] = self.table

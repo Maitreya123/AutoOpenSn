@@ -132,6 +132,20 @@ def workdir_for(template: Template) -> str:
     return str(Path(TUTORIALS_IN_SOURCE) / Path(template.generated_from).parent)
 
 
+def ranks_for(spec: Spec, template: Template) -> int:
+    """The MPI ranks to run with: the spec's, if it says, else the scenario's own.
+
+    A spec's default is 1, which would run an eight-rank tutorial on one rank —
+    still the right answer, from a different run than the one its gold values
+    and timings describe. Whether the spec *said* is read from the fields it
+    set, not from the value, so asking for exactly 1 still means 1. The MCP
+    server applied this rule on its own; here it holds for every path.
+    """
+    if "num_procs" in spec.model_fields_set:
+        return spec.num_procs
+    return template.num_procs or spec.num_procs
+
+
 def run_study(
     spec: Spec,
     runner: Runner,
@@ -157,7 +171,11 @@ def run_study(
 
     rendered_points = render_points(spec, template)
     spec_yaml = spec.to_yaml()
-    runner_config = runner.config()
+    num_procs = ranks_for(spec, template)
+    # The rank count is part of a result's identity. The physics agrees across
+    # rank counts, but the timings, memory and scheduler figures recorded with
+    # every run do not, and a one-rank result must not answer for eight.
+    runner_config = {**runner.config(), "num_procs": num_procs}
 
     results: list[RunResult] = []
     cache_hits: list[str] = []
@@ -182,7 +200,7 @@ def run_study(
             script=rendered.script,
             directory=directory,
             template=template.name,
-            num_procs=spec.num_procs,
+            num_procs=num_procs,
             timeout_seconds=spec.timeout_seconds,
             parameters=rendered.point.parameters,
             data_files=data_files_for(template),

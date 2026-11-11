@@ -53,6 +53,10 @@ export type Job = {
   label: string;
   note: string;
   table?: TableRow[] | null;
+  study_id?: string | null;
+  group?: string | null;
+  /** Vega-Lite specifications, worked out by the server from the study. */
+  charts?: Record<string, unknown>[] | null;
 };
 
 export type StartedRun = {
@@ -97,6 +101,41 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export type FieldFile = {
+  path: string;
+  kind: "vtk" | "profile";
+  arrays: string[];
+  columns: string[];
+  pieces: number;
+  groups: number;
+  default_array: string | null;
+};
+
+export type CaseFields = { case_id: string; label: string; fields: FieldFile[] };
+
+export type StudySummary = {
+  id: string;
+  name: string;
+  template: string;
+  group_key: string;
+  swept: string[];
+  runner: string;
+  engine_note: string | null;
+  created_at: string;
+  cases: number;
+  ok_cases: number;
+  converged_cases: number | null;
+  cache_hits: number;
+  wall_time_total: number | null;
+};
+
+export type StudyRecord = Omit<StudySummary, "cases"> & {
+  spec_yaml: string;
+  cases: { case_id: string; label: string; is_reference: boolean; parameters: Record<string, unknown>; row: TableRow }[];
+};
+
+export type Spec = Record<string, unknown>;
+
 export const api = {
   health: () => request<Health>("/api/health"),
 
@@ -113,6 +152,29 @@ export const api = {
     }),
 
   job: (id: string) => request<Job>(`/api/runs/${id}`),
+
+  studies: (limit = 12) => request<{ studies: StudySummary[] }>(`/api/studies?limit=${limit}`),
+
+  study: (id: string) => request<StudyRecord>(`/api/studies/${encodeURIComponent(id)}`),
+
+  studyCharts: (id: string) =>
+    request<{ charts: Spec[] }>(`/api/studies/${encodeURIComponent(id)}/charts`),
+
+  compare: (group: string) =>
+    request<{ studies: StudySummary[]; charts: Spec[] }>(`/api/compare?group=${encodeURIComponent(group)}`),
+
+  fields: (id: string) =>
+    request<{ cases: CaseFields[] }>(`/api/studies/${encodeURIComponent(id)}/fields`),
+
+  fieldChart: (id: string, caseId: string, file: string) =>
+    request<{ chart: Spec | null }>(
+      `/api/studies/${encodeURIComponent(id)}/fields/chart?case=${encodeURIComponent(caseId)}&file=${encodeURIComponent(file)}`,
+    ),
+
+  /** A URL, not a fetch: the browser loads and caches the PNG itself. */
+  fieldImage: (id: string, caseId: string, file: string, array: string | null) =>
+    `/api/studies/${encodeURIComponent(id)}/fields/image?case=${encodeURIComponent(caseId)}` +
+    `&file=${encodeURIComponent(file)}${array ? `&array=${encodeURIComponent(array)}` : ""}`,
 
   explain: (table: TableRow[], specYaml: string | null) =>
     request<Narrative>("/api/explain", {

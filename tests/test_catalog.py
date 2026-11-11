@@ -104,3 +104,31 @@ def test_forgetting_a_study_leaves_the_cache_alone(tmp_path):
         assert catalog.study(result.study_id) is None
     with RunStore(tmp_path / "cache.db") as store:
         assert len(list(store.entries())) == 3
+
+
+# --- rank counts ---------------------------------------------------------------
+
+
+def test_a_spec_without_ranks_runs_on_the_scenarios_own():
+    from autoopensn.study import ranks_for
+    from autoopensn.templates import load_template
+
+    template = load_template("hdpe_example")
+    assert template.num_procs > 1
+    unset = Spec(**{"name": "h", "template": "hdpe_example", "observables": ["wall_time"]})
+    assert ranks_for(unset, template) == template.num_procs
+
+
+def test_a_spec_that_asks_for_one_rank_gets_one():
+    """Read from what the spec set, not from the value: 1 asked for is 1."""
+    from autoopensn.study import ranks_for
+    from autoopensn.templates import load_template
+
+    asked = Spec(**{"name": "h", "template": "hdpe_example", "observables": ["wall_time"], "num_procs": 1})
+    assert ranks_for(asked, load_template("hdpe_example")) == 1
+
+
+def test_results_at_different_rank_counts_do_not_share_cache_entries(tmp_path):
+    one = run(tmp_path, spec(num_procs=1))
+    two = run(tmp_path, spec(num_procs=2))
+    assert one.cache_hits == [] and two.cache_hits == [], "eight ranks is not one rank's evidence"

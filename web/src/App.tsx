@@ -1,10 +1,15 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { api, pollJob, type Job, type Narrative, type SpecDraft, type TableRow } from "./api";
 import Step from "./components/Step";
 import ResultsTable from "./components/ResultsTable";
+// Loaded on demand: Vega is most of the bundle, and charts appear only after a
+// study finishes, so there is no reason to make the first page wait for it.
+const Chart = lazy(() => import("./components/Chart"));
 import Chat, { type Turn } from "./components/Chat";
 import Examples from "./components/Examples";
 import Masthead from "./components/Masthead";
+import Fields from "./components/Fields";
+import History, { Compare } from "./components/History";
 
 // Four steps, in order, and nothing to configure.
 //
@@ -276,6 +281,17 @@ export default function App() {
             {haveResults && (
               <>
                 <ResultsTable rows={table} />
+                {(job.charts ?? []).length > 0 && (
+                  <Suspense fallback={<p className="hint">Drawing charts…</p>}>
+                    <div className="charts">
+                      {(job.charts ?? []).map((spec, index) => (
+                        <Chart key={index} spec={spec} />
+                      ))}
+                    </div>
+                  </Suspense>
+                )}
+                {job.study_id && <Fields studyId={job.study_id} />}
+                {job.study_id && job.group && <Compare group={job.group} studyId={job.study_id} />}
                 {job.cache_hits.length > 0 && (
                   <p className="hint" style={{ marginTop: 10 }}>
                     {job.cache_hits.length} case
@@ -307,6 +323,7 @@ export default function App() {
           </>
         )}
       </Step>
+      <History refresh={job?.status === "succeeded" ? job.id : null} />
     </div>
   );
 }
