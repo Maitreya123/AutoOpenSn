@@ -501,3 +501,22 @@ def test_run_directories_stay_inside_the_apps_run_root(client, tmp_path):
     """They used to land in the repository's own runs/ folder."""
     _run_and_wait(client, GOOD_SPEC)
     assert (tmp_path / "runs" / "tolerance_study").is_dir()
+
+
+def test_a_finished_study_comes_with_its_charts(client):
+    job = _run_and_wait(client, GOOD_SPEC)
+    assert job["charts"], "a tolerance sweep has something to chart"
+    assert job["charts"][0]["title"]["text"] == "Varying l_abs_tol"
+
+
+def test_a_catalogued_study_can_be_charted_later(client):
+    job = _run_and_wait(client, GOOD_SPEC)
+    charts = client.get(f"/api/studies/{job['study_id']}/charts").json()["charts"]
+    assert charts and charts[0]["title"]["text"] == "Varying l_abs_tol"
+
+
+def test_a_group_can_be_compared(client):
+    _run_and_wait(client, GOOD_SPEC)
+    _run_and_wait(client, GOOD_SPEC)
+    body = client.get("/api/compare", params={"group": "reed_1d:l_abs_tol"}).json()
+    assert len(body["studies"]) == 2 and body["charts"]

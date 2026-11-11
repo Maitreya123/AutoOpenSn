@@ -44,6 +44,7 @@ from autoopensn.runner import Runner, RunnerError
 from autoopensn.runner.select import UnknownRunner, build_runner
 from autoopensn.spec import Spec, SpecError
 from autoopensn.store import Catalog, RunStore
+from autoopensn.viz.charts import comparison_chart, study_charts
 from autoopensn.study import render_points, run_study
 from autoopensn.templates import TemplateError, load_template
 from autoopensn.tutorials import catalog
@@ -390,6 +391,13 @@ def create_app(
                 "run_root": str(result.run_root),
                 "cache_hits": list(result.cache_hits),
                 "study_id": result.study_id,
+                # Worked out from the full table, not the four-column view, so
+                # performance figures can be charted as well as the results.
+                "charts": study_charts(
+                    _jsonable(result.table),
+                    [d.parameter for d in spec.sweep],
+                    grid=spec.sweep_mode == "grid",
+                ),
             }
 
         job = jobs.start(
@@ -419,6 +427,31 @@ def create_app(
         if found is None:
             raise HTTPException(status_code=404, detail=f"no study {study_id!r}")
         return found
+
+    @app.get("/api/studies/{study_id}/charts")
+    def study_charts_for(study_id: str) -> dict[str, Any]:
+        """Charts of one catalogued study, as Vega-Lite specifications."""
+        with Catalog(app.state.store_path) as catalog:
+            found = catalog.study(study_id)
+        if found is None:
+            raise HTTPException(status_code=404, detail=f"no study {study_id!r}")
+        rows = [case["row"] for case in found["cases"]]
+        grid = "sweep_mode: grid" in (found.get("spec_yaml") or "")
+        return {"charts": study_charts(rows, found["swept"], grid=grid)}
+
+    @app.get("/api/compare")
+    def compare(group: str, measure: str = "sweeps", limit: int = 6) -> dict[str, Any]:
+        """The latest studies of one group, overlaid on one chart per varied parameter."""
+        with Catalog(app.state.store_path) as catalog:
+            summaries = catalog.studies(group=group, limit=limit)
+            studies = [catalog.study(s["id"]) for s in summaries]
+        if not studies:
+            raise HTTPException(status_code=404, detail=f"no studies in group {group!r}")
+        charts = [
+            chart for parameter in studies[0]["swept"]
+            if (chart := comparison_chart(studies, parameter, measure)) is not None
+        ]
+        return {"group": group, "studies": summaries, "charts": charts}
 
     @app.get("/api/groups")
     def list_groups() -> dict[str, Any]:

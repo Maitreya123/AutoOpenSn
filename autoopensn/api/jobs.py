@@ -63,6 +63,8 @@ class Job:
     run_root: Optional[str] = None
     study_id: Optional[str] = None
     """The study's id in the catalogue once it has finished and been recorded."""
+    charts: Optional[list[dict[str, Any]]] = None
+    """Vega-Lite specifications of the study's results, once it has finished."""
     cache_hits: list[str] = field(default_factory=list)
     label: str = ""
     """What the study was, for a UI listing jobs without re-reading the spec."""
@@ -95,6 +97,7 @@ class Job:
         }
         if include_table:
             record["table"] = self.table
+            record["charts"] = self.charts
         return record
 
 
