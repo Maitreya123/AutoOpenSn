@@ -92,6 +92,18 @@ The charts are plain Vega-Lite JSON, so the same description renders in the
 page, in a report (to SVG or PNG with vl-convert, no browser needed), or for an
 agent over MCP.
 
+### Explained in words
+
+The analysis step ("Analyse these results") never sees an image. With the
+study's id, the server describes every chart and field picture in sentences
+computed from the same data: what each panel plots and on what axes, each
+point's value, which cases did not converge, the mesh's extent, where the flux
+is highest and lowest (with the place named: centre, edge, corner), and where
+the energy spectrum peaks (`describe_chart` in `viz/charts.py`, `describe` in
+`viz/fields.py`). The model explains the figures from those sentences, and the
+number check accepts a figure only if it is in the table or in them. Up to six
+field files per study are described.
+
 ## Checks
 
 Every chart the tests make is drawn by vl-convert, the reference Vega-Lite

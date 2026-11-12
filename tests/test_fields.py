@@ -145,3 +145,36 @@ def test_a_profile_is_charted_along_the_axis_that_varies(run_dir):
     chart = fields.profile_chart(run_dir / "detector.csv")
     assert chart["encoding"]["x"]["field"] == "z"
     assert len(chart["data"]["values"]) == 9
+
+
+# --- fields in words, for the narration ---------------------------------------------
+
+
+def test_a_multigroup_flux_is_described_with_its_peak_and_spectrum(run_dir):
+    text = "\n".join(fields.describe(run_dir / "Flux" / "flux.pvtu", "Flux/flux.pvtu"))
+    assert "a 2D mesh of 8 cells, x from 0 to 2, y from 0 to 1" in text
+    assert "Block (material regions): 1 distinct value" in text
+    # exp(-x) in group 0: highest 1 at x=0, lowest exp(-2) at x=2.
+    assert "Highest 1 at (x=0, y=0, a corner)" in text and "lowest 0.1353 at (x=2, y=" in text
+    assert "3 groups" in text and "peaks at group 0" in text and "lowest is group 2" in text
+
+
+def test_a_3d_mesh_is_described_by_its_regions(run_dir):
+    text = "\n".join(fields.describe(run_dir / "mesh3d.vtu"))
+    assert "a 3D mesh of 8 cells" in text
+    assert "Block (material regions): 2 distinct values" in text
+
+
+def test_a_profile_is_described_along_its_axis(run_dir):
+    text = "\n".join(fields.describe(run_dir / "detector.csv"))
+    assert "line profile along z, 9 points" in text
+    assert "highest 4 at z=2" in text and "lowest 0 at z=0" in text
+
+
+def test_a_point_is_placed_in_words():
+    """(0, 0) on a mesh from -10 to 10 is the centre, which coordinates alone hide."""
+    grid = np.array([[x, y, 0] for x in (-10, 0, 10) for y in (-10, 0, 10)], dtype=float)
+    centre, corner, edge = 4, 0, 1
+    assert fields._place(grid, centre, [0, 1]) == "the centre"
+    assert fields._place(grid, corner, [0, 1]) == "a corner"
+    assert fields._place(grid, edge, [0, 1]) == "an edge"

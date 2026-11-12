@@ -345,6 +345,47 @@ pre.spec {
 
 /* --- notices --- */
 
+textarea.spec-edit {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  padding: 16px 18px;
+  max-height: 460px;
+  white-space: pre;
+  overflow-x: auto;
+  tab-size: 2;
+}
+
+.spec-status {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 13px;
+  min-height: 20px;
+}
+.spec-ok { color: var(--ok, #2f7d4f); font-weight: 600; }
+.spec-bad { color: var(--bad); white-space: pre-wrap; }
+
+button.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+button.link:hover:not(:disabled) { background: none; color: var(--accent-hover); }
+
+details.review summary { cursor: pointer; }
+details.review ul { margin: 10px 0 2px; padding-left: 20px; }
+details.review li { margin: 4px 0; }
+
 .notice {
   border-radius: var(--radius-sm);
   padding: 12px 15px;

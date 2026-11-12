@@ -95,3 +95,39 @@ def test_studies_in_a_group_overlay_on_one_chart():
     assert {v["study"].split(" ·")[0] for v in chart["data"]["values"]} == {"first", "second"}
     assert chart["encoding"]["x"]["scale"] == {"type": "log"}
     assert renders(chart)
+
+
+# --- charts in words, for the narration ----------------------------------------------
+
+
+def test_a_chart_is_described_with_the_points_it_draws():
+    from autoopensn.viz.charts import describe_chart
+
+    text = "\n".join(describe_chart(study_charts(TOLERANCES, ["l_abs_tol"])[0]))
+    assert 'Chart "Varying l_abs_tol"' in text
+    assert "Sweeps against l_abs_tol (log axis)" in text
+    assert "Relative flux difference (log axis)" in text
+    assert "0.0001 -> 6" in text and "1e-08 -> 10" in text
+    assert "reference" not in text, "the reference is not drawn, so it is not described"
+
+
+def test_an_unconverged_case_is_named_in_the_description():
+    from autoopensn.viz.charts import describe_chart
+
+    rows = [
+        {"case": "a", "param_inner_linear_method": "classic_richardson", "sweeps": 100, "converged": False},
+        {"case": "b", "param_inner_linear_method": "petsc_gmres", "sweeps": 15, "converged": True},
+    ]
+    text = "\n".join(describe_chart(study_charts(rows, ["inner_linear_method"])[0]))
+    assert "drawn as bars" in text
+    assert "classic_richardson -> 100 (did not converge)" in text
+    assert "did not converge: a." in text
+
+
+def test_a_heatmap_is_described_cell_by_cell():
+    from autoopensn.viz.charts import describe_chart
+
+    rows = [{"case": f"{a},{b}", "param_a": a, "param_b": b, "sweeps": a * b, "converged": True}
+            for a in (1, 2) for b in (3, 4)]
+    text = "\n".join(describe_chart(study_charts(rows, ["a", "b"], grid=True)[0]))
+    assert "Heatmap of Sweeps" in text and "2/4 = 8" in text

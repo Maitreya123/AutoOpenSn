@@ -19,6 +19,11 @@ export type Scenario = {
 
 export type Citation = { number: number; location: string; title: string; text: string };
 
+/** An edited spec, as the server read it. */
+export type SpecCheck =
+  | { ok: true; spec_yaml: string | null; spec_json: string | null; cases: number; error?: undefined }
+  | { ok: false; error: string; spec_yaml?: undefined; spec_json?: undefined; cases?: undefined };
+
 export type SpecDraft = {
   ok: boolean;
   summary: string;
@@ -70,7 +75,6 @@ export type StartedRun = {
 export type Narrative = {
   text: string;
   warnings?: string[];
-  unsupported?: string[];
   model: string | null;
   elapsed: number;
 };
@@ -145,6 +149,12 @@ export const api = {
       body: JSON.stringify({ prompt }),
     }),
 
+  checkSpec: (specYaml: string) =>
+    request<SpecCheck>("/api/spec/check", {
+      method: "POST",
+      body: JSON.stringify({ spec_yaml: specYaml }),
+    }),
+
   startRun: (specYaml: string) =>
     request<StartedRun>("/api/runs", {
       method: "POST",
@@ -176,16 +186,22 @@ export const api = {
     `/api/studies/${encodeURIComponent(id)}/fields/image?case=${encodeURIComponent(caseId)}` +
     `&file=${encodeURIComponent(file)}${array ? `&array=${encodeURIComponent(array)}` : ""}`,
 
-  explain: (table: TableRow[], specYaml: string | null) =>
+  /** With a study id, the server also describes that study's charts and fields to the model. */
+  explain: (table: TableRow[], specYaml: string | null, studyId: string | null = null) =>
     request<Narrative>("/api/explain", {
       method: "POST",
-      body: JSON.stringify({ table, spec_yaml: specYaml }),
+      body: JSON.stringify({ table, spec_yaml: specYaml, study_id: studyId }),
     }),
 
-  chat: (table: TableRow[], messages: { role: string; content: string }[], specYaml: string | null) =>
+  chat: (
+    table: TableRow[],
+    messages: { role: string; content: string }[],
+    specYaml: string | null,
+    studyId: string | null = null,
+  ) =>
     request<Narrative>("/api/chat", {
       method: "POST",
-      body: JSON.stringify({ table, messages, spec_yaml: specYaml }),
+      body: JSON.stringify({ table, messages, spec_yaml: specYaml, study_id: studyId }),
     }),
 };
 

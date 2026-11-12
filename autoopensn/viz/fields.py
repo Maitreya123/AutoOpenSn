@@ -469,3 +469,105 @@ def profile_chart(path: Path) -> Optional[dict[str, Any]]:
             "tooltip": [{"field": axis}, {"field": "quantity"}, {"field": "value", "format": ".4~g"}],
         },
     }
+
+
+# --- describing fields in words --------------------------------------------------
+
+
+def _g(value: float) -> str:
+    return f"{value:.4g}"
+
+
+def _place(points: np.ndarray, index: int, axes: list[int]) -> str:
+    """Where a point sits in the domain, in words: centre, edge or corner.
+
+    Computed rather than left to the reader of the coordinates, who cannot
+    tell that (0, 0) is the centre of a mesh from -10 to 10 and not a corner.
+    """
+    low, high = points[:, axes].min(axis=0), points[:, axes].max(axis=0)
+    span = np.where(high > low, high - low, 1.0)
+    relative = (points[index, axes] - low) / span
+    at_boundary = [r <= 0.05 or r >= 0.95 for r in relative]
+    if all(abs(r - 0.5) <= 0.1 for r in relative):
+        return "the centre"
+    if len(axes) >= 2 and all(at_boundary):
+        return "a corner"
+    if any(at_boundary):
+        return "a boundary" if len(axes) == 1 else "an edge"
+    return "the interior"
+
+
+def _where(points: np.ndarray, index: int, axes: list[int]) -> str:
+    coordinates = ", ".join(f"{'xyz'[a]}={_g(points[index, a])}" for a in axes)
+    return f"({coordinates}, {_place(points, index, axes)})"
+
+
+def _extent(points: np.ndarray, axes: list[int]) -> str:
+    return ", ".join(f"{'xyz'[a]} from {_g(points[:, a].min())} to {_g(points[:, a].max())}" for a in axes)
+
+
+def describe(path: Path, relative: Optional[str] = None) -> list[str]:
+    """What a field file's pictures show, as sentences computed from the data.
+
+    The narration never sees an image. It sees this: the mesh, where the flux
+    is highest and lowest, and for multigroup flux where the spectrum peaks,
+    every figure calculated here rather than read off a picture.
+    """
+    path = Path(path)
+    name = relative or path.name
+    if path.suffix == ".csv":
+        import pandas as pd  # noqa: PLC0415
+
+        table = pd.read_csv(path)
+        varying = [c for c in ("x", "y", "z") if c in table.columns and table[c].nunique() > 1]
+        if not varying:
+            return []
+        axis = varying[0]
+        lines = [f"Field file {name}: a line profile along {axis}, {len(table)} points."]
+        for column in [c for c in table.columns if c not in ("x", "y", "z")]:
+            series = pd.to_numeric(table[column], errors="coerce")
+            if series.notna().sum() < 2:
+                continue
+            high, low = int(series.idxmax()), int(series.idxmin())
+            lines.append(f"- {column}: highest {_g(series[high])} at {axis}={_g(table[axis][high])}, "
+                         f"lowest {_g(series[low])} at {axis}={_g(table[axis][low])}.")
+        return lines
+
+    field = load(path)
+    axes = _spatial_axes(field.points)
+    cells = sum(len(data) for _, data in field.cells)
+    lines = [f"Field file {name}: a {max(len(axes), 1)}D mesh of {cells} cells, "
+             f"{_extent(field.points, axes or [0])}."]
+
+    for region in ("Block", "Partition"):
+        data = field.cell_data.get(region)
+        if data is not None:
+            present = np.unique(np.rint(data).astype(int))
+            what = "material regions" if region == "Block" else "MPI ranks owning cells"
+            lines.append(f"- {region} ({what}): {len(present)} distinct value"
+                         f"{'s' if len(present) != 1 else ''}, drawn one colour each.")
+
+    groups = sorted((int(m["group"]), name_) for name_ in field.point_data
+                    if (m := GROUP_ARRAY.match(name_)) and m["moment"] == "00")
+    if groups:
+        first = groups[0][1]
+        values = field.point_data[first]
+        high, low = int(np.argmax(values)), int(np.argmin(values))
+        picture = ("a line along " + "xyz"[axes[0]]) if len(axes) <= 1 else (
+            "a colour map, darker is lower" if len(axes) == 2 else "a slice through the middle")
+        lines.append(f"- Default picture: scalar flux in group {groups[0][0]} as {picture}. "
+                     f"Highest {_g(values[high])} at {_where(field.points, high, axes)}, "
+                     f"lowest {_g(values[low])} at {_where(field.points, low, axes)}, "
+                     f"mean over points {_g(float(np.mean(values)))}.")
+    if len(groups) >= 2:
+        means = [(g, float(np.mean(field.point_data[n]))) for g, n in groups]
+        means = [(g, m) for g, m in means if math.isfinite(m)]
+        peak = max(means, key=lambda gm: gm[1])
+        trough = min(means, key=lambda gm: gm[1])
+        last = len(groups) - 1
+        position = ("the low-energy (thermal) end" if peak[0] >= 0.75 * last
+                    else "the high-energy (fast) end" if peak[0] <= 0.25 * last else "the middle of the range")
+        lines.append(f"- Energy spectrum chart: mean flux per group for {len(groups)} groups, group 0 the "
+                     f"highest energy. It peaks at group {peak[0]} ({_g(peak[1])}), toward {position}; "
+                     f"the lowest is group {trough[0]} ({_g(trough[1])}).")
+    return lines

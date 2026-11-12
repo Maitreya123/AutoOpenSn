@@ -6,6 +6,11 @@ the raw solver output. If a quantity is not a column, it is not available to the
 narration, and the fix is to parse it into a column rather than to hand the model
 more text to interpret.
 
+The one addition is the figures. The page draws charts and field pictures the
+model never sees; instead it gets ``figures``, sentences computed by code from
+the same data (what each chart plots, where the flux peaks, where the spectrum
+peaks). Those count as evidence for the number check exactly as the table does.
+
 That rule is what makes the narrative checkable. Every number in it should be
 findable in the table by eye, and ``unsupported_numbers`` does that check
 mechanically afterwards, because a model asked not to invent numbers still
@@ -84,7 +89,12 @@ def _context(spec: Optional[Spec]) -> str:
 NUMBER = re.compile(r"-?\d+\.?\d*(?:[eE][-+]?\d+)?")
 
 
-def unsupported_numbers(text: str, table: pd.DataFrame, tolerance: float = 0.02) -> list[str]:
+def unsupported_numbers(
+    text: str,
+    table: pd.DataFrame,
+    tolerance: float = 0.02,
+    figures: Sequence[str] = (),
+) -> list[str]:
     """Numbers in the narrative that do not appear in the table.
 
     A cheap, deliberately forgiving check. It exists to catch a narrative that
@@ -96,6 +106,8 @@ def unsupported_numbers(text: str, table: pd.DataFrame, tolerance: float = 0.02)
     for column in table.columns:
         series = pd.to_numeric(table[column], errors="coerce").dropna()
         values.extend(float(v) for v in series)
+    for line in figures:
+        values.extend(float(m.group(0)) for m in NUMBER.finditer(line))
 
     unsupported: list[str] = []
     for match in NUMBER.finditer(text):
@@ -114,6 +126,22 @@ def unsupported_numbers(text: str, table: pd.DataFrame, tolerance: float = 0.02)
     return unsupported
 
 
+def _figures_block(figures: Sequence[str]) -> str:
+    if not figures:
+        return ""
+    return ("FIGURES ON THE PAGE (described by code from the data; you cannot see them):\n"
+            + "\n".join(figures))
+
+
+def _check(result: Explanation, table: pd.DataFrame, figures: Sequence[str]) -> None:
+    invented = unsupported_numbers(result.text, table, figures=figures)
+    if invented:
+        result.warnings.append(
+            "These figures do not appear in the results or the chart descriptions and "
+            "may have been invented: " + ", ".join(sorted(set(invented))[:8])
+        )
+
+
 def explain(
     table: pd.DataFrame,
     spec: Optional[Spec] = None,
@@ -121,6 +149,7 @@ def explain(
     llm: Optional[LLM] = None,
     question: Optional[str] = None,
     check_numbers: bool = True,
+    figures: Sequence[str] = (),
 ) -> Explanation:
     """Explain the trends in a finished results table."""
     if table is None or len(table) == 0:
@@ -132,17 +161,19 @@ def explain(
         llm = default_llm()
 
     system = load_prompt("explain")
-    parts = [_context(spec), "RESULTS TABLE:\n" + table_for_prompt(table)]
+    parts = [_context(spec), "RESULTS TABLE:\n" + table_for_prompt(table), _figures_block(figures)]
     if question:
         parts.append(f"The reader asked specifically: {question}")
-    parts.append("Explain what these results show.")
+    parts.append("Explain what these results show."
+                 + (" Then, figure by figure, say what each one plots, how to read it, and "
+                    "what it shows." if figures else ""))
     user = "\n\n".join(part for part in parts if part)
 
     chooser = getattr(llm, "model_for", None)
     model = chooser("thorough") if callable(chooser) else None
 
     try:
-        completion = llm.complete(system, user, temperature=0.3, max_tokens=1600, model=model)
+        completion = llm.complete(system, user, temperature=0.3, max_tokens=2200 if figures else 1600, model=model)
     except LLMError as exc:
         raise NarrationError(str(exc)) from exc
 
@@ -154,12 +185,7 @@ def explain(
     )
 
     if check_numbers:
-        invented = unsupported_numbers(explanation.text, table)
-        if invented:
-            explanation.warnings.append(
-                "These figures do not appear in the results table and may have "
-                "been invented: " + ", ".join(sorted(set(invented))[:8])
-            )
+        _check(explanation, table, figures)
     return explanation
 
 
@@ -170,6 +196,7 @@ def chat(
     *,
     llm: Optional[LLM] = None,
     check_numbers: bool = True,
+    figures: Sequence[str] = (),
 ) -> Explanation:
     """Answer a follow-up question about a finished table.
 
@@ -203,9 +230,10 @@ def chat(
     parts = [
         _context(spec),
         "RESULTS TABLE:\n" + table_for_prompt(table),
+        _figures_block(figures),
         "CONVERSATION SO FAR:\n" + transcript,
-        "Answer the reader's last message. Stay within the table: if it does "
-        "not contain what they asked about, say so plainly and say what would "
+        "Answer the reader's last message. Stay within the table and the figure "
+        "descriptions: if they do not contain what they asked about, say so plainly and say what would "
         "have to be run to find out.",
     ]
     user = "\n\n".join(part for part in parts if part)
@@ -227,10 +255,5 @@ def chat(
         elapsed=completion.elapsed,
     )
     if check_numbers:
-        invented = unsupported_numbers(answer.text, table)
-        if invented:
-            answer.warnings.append(
-                "These figures do not appear in the results table and may have "
-                "been invented: " + ", ".join(sorted(set(invented))[:8])
-            )
+        _check(answer, table, figures)
     return answer

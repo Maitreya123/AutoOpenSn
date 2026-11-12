@@ -309,6 +309,32 @@ def test_an_answer_level_finding_triggers_exactly_one_revision(one_scenario):
     assert draft.spec.name == "revised_study"
 
 
+def test_a_revision_that_changes_nothing_is_not_called_one(one_scenario):
+    """Shown "Revised after…" three times on HDPE when the spec had not changed."""
+    llm = ScriptedLLM([GOOD_SPEC, GOOD_SPEC])
+    reviewer = FakeReviewer(
+        FakeReviewPass(answer_level=[FakeFinding("the docs do not give this tolerance", False)])
+    )
+    draft = _grounded_draft(llm, one_scenario, reviewer)
+    assert draft.review_status == "flagged"
+    assert draft.revisions == 0
+    assert draft.notes == ["the docs do not give this tolerance"]
+
+
+def test_the_reviewer_is_shown_the_scenarios_declared_parameters(one_scenario):
+    """Without them every scenario default looks unsupported by the docs."""
+    class Recording(FakeReviewer):
+        def review(self, prompt, spec_text, context, **kwargs):
+            self.context = context
+            return self.result
+
+    reviewer = Recording(FakeReviewPass())
+    _grounded_draft(ScriptedLLM([GOOD_SPEC]), one_scenario, reviewer)
+    assert "THE SCENARIO'S DECLARED PARAMETERS (reed_1d)" in reviewer.context
+    assert "l_abs_tol" in reviewer.context
+    assert "some evidence text" in reviewer.context
+
+
 def test_the_reviewer_cannot_overturn_validation(one_scenario):
     """The lesson the sister repository records: advisory never beats decisive.
 
@@ -552,3 +578,35 @@ def test_the_narration_knows_a_one_sweep_comparison_says_nothing():
     text = load_prompt("explain")
     assert "one or two sweeps" in text
     assert "Converged" in text
+
+
+# --- figures --------------------------------------------------------------------------
+
+
+FIGURES = [
+    'Chart "Varying l_abs_tol", 1 panel:',
+    "- Sweeps against l_abs_tol (log axis), drawn as line: 0.0001 -> 6; 1e-06 -> 8.",
+    "- Energy spectrum chart: it peaks at group 161 (3.417e+04).",
+]
+
+
+def test_figures_are_described_to_the_model_and_asked_about():
+    llm = ScriptedLLM(["Fine."])
+    explain(pd.DataFrame([{"case": "a", "sweeps": 6}, {"case": "b", "sweeps": 8}]),
+            llm=llm, figures=FIGURES)
+    user = llm.calls[0]["user"]
+    assert "FIGURES ON THE PAGE" in user and "peaks at group 161" in user
+    assert "figure by figure" in user
+
+
+def test_without_figures_the_prompt_is_unchanged():
+    llm = ScriptedLLM(["Fine."])
+    explain(pd.DataFrame([{"case": "a", "sweeps": 6}]), llm=llm)
+    assert "FIGURES" not in llm.calls[0]["user"]
+
+
+def test_a_number_from_a_figure_description_is_supported():
+    table = pd.DataFrame([{"case": "a", "sweeps": 6}])
+    text = "The spectrum peaks at 3.417e+04 in group 161, and 2.5e9 is made up."
+    assert unsupported_numbers(text, table, figures=FIGURES) == ["2.5e9"]
+    assert "3.417e+04" in unsupported_numbers(text, table)

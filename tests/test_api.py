@@ -562,3 +562,52 @@ def test_a_field_request_cannot_leave_the_case_directory(client):
     response = client.get(f"/api/studies/{study_id}/fields/image",
                           params={"case": case_id, "file": "../../../../etc/hosts"})
     assert response.status_code == 404
+
+
+def test_explain_describes_the_studys_charts_and_fields(tmp_path):
+    """The narration is told what the page draws, computed from the catalogue."""
+    pytest.importorskip("meshio")
+    llm = ScriptedLLM(["The tighter tolerance needed more sweeps.", "Group 0 only."])
+    client = TestClient(create_app(llm=llm, run_root=tmp_path / "runs"))
+    study_id, _ = _study_with_a_field(client)
+    table = [{"case": "a", "sweeps": 6}]
+    response = client.post("/api/explain", json={"table": table, "study_id": study_id})
+    assert response.status_code == 200
+    assert "warnings" in response.json()
+    user = llm.calls[-1]["user"]
+    assert 'Chart "Varying l_abs_tol"' in user
+    assert "Field file flux.vtu: a 1D mesh of 4 cells, z from 0 to 1" in user
+    answer = client.post("/api/chat", json={
+        "table": table, "study_id": study_id,
+        "messages": [{"role": "user", "content": "What does the flux picture show?"}]})
+    assert answer.status_code == 200
+    assert "Field file flux.vtu" in llm.calls[-1]["user"]
+
+
+def test_explain_reports_invented_numbers(tmp_path):
+    """The endpoint used to look for an attribute that did not exist and drop them."""
+    client = TestClient(create_app(llm=ScriptedLLM(["It took 987654 sweeps."]), run_root=tmp_path / "runs"))
+    response = client.post("/api/explain", json={"table": [{"case": "a", "sweeps": 6}]})
+    assert any("987654" in w for w in response.json()["warnings"])
+
+
+# --- editing a spec by hand -----------------------------------------------------
+
+
+def test_an_edited_spec_is_checked_without_running(client):
+    edited = GOOD_SPEC.replace("values: [1.0e-4, 1.0e-6]", "values: [1.0e-4, 1.0e-6, 1.0e-8]")
+    assert edited != GOOD_SPEC
+    body = client.post("/api/spec/check", json={"spec_yaml": edited}).json()
+    assert body["ok"] and body["cases"] == 3 + 1, "three swept values and the reference"
+    assert '"template": "reed_1d"' in body["spec_json"]
+    assert client.get("/api/runs").json()["jobs"] == []
+
+
+@pytest.mark.parametrize("broken,reason", [
+    ("name: x\ntemplate: [", "could not read"),
+    (OUT_OF_RANGE, "gmres_restart_interval"),
+    (GOOD_SPEC.replace("template: reed_1d", "template: no_such_scenario"), "no_such_scenario"),
+])
+def test_an_edited_spec_that_does_not_validate_says_why(client, broken, reason):
+    body = client.post("/api/spec/check", json={"spec_yaml": broken}).json()
+    assert body["ok"] is False and reason in body["error"]

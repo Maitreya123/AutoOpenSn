@@ -45,11 +45,15 @@ from autoopensn.runner import Runner, RunnerError
 from autoopensn.runner.select import UnknownRunner, build_runner
 from autoopensn.spec import Spec, SpecError
 from autoopensn.store import Catalog, RunStore, group_key
-from autoopensn.viz.charts import comparison_chart, study_charts
+from autoopensn.viz.charts import comparison_chart, describe_chart, study_charts
 from autoopensn.viz import fields as field_files
 from autoopensn.study import render_points, run_study
 from autoopensn.templates import TemplateError, load_template
 from autoopensn.tutorials import catalog
+
+# Field files described to the narration per study: enough for a sweep of a few
+# cases, few enough that one study of forty cases does not read forty meshes.
+MAX_DESCRIBED_FIELDS = 6
 
 # Vite's dev server runs on its own port, so the browser's origin is not the
 # API's. Restricted to loopback: this app is a local tool, and a wildcard here
@@ -91,6 +95,9 @@ class ExplainRequest(BaseModel):
     table: list[dict[str, Any]]
     spec_yaml: Optional[str] = None
     question: Optional[str] = None
+    study_id: Optional[str] = None
+    """When given, the charts and field pictures of this study are described to
+    the narration too, so it can explain them."""
 
 
 class ChatMessage(BaseModel):
@@ -102,6 +109,7 @@ class ChatRequest(BaseModel):
     table: list[dict[str, Any]]
     messages: list[ChatMessage]
     spec_yaml: Optional[str] = None
+    study_id: Optional[str] = None
 
 
 # --- helpers ----------------------------------------------------------------
@@ -346,6 +354,25 @@ def create_app(
             "elapsed": draft.elapsed,
         }
 
+    @app.post("/api/spec/check")
+    def check_spec(body: SpecYaml) -> dict[str, Any]:
+        """Validate a spec someone edited by hand, without running it.
+
+        Always 200: a spec that does not validate is the expected outcome while
+        someone is typing, and the reason is the useful part. The same
+        validation as /api/runs, so a spec that checks here is one that runs.
+        """
+        try:
+            spec = _load_spec(body.spec_yaml)
+        except HTTPException as exc:
+            return {"ok": False, "error": str(exc.detail)}
+        return {
+            "ok": True,
+            "spec_yaml": spec.to_yaml(),
+            "spec_json": json.dumps(spec.model_dump(mode="json"), indent=2),
+            "cases": len(spec.expand()),
+        }
+
     # --- spec to scripts ---
 
     @app.post("/api/render")
@@ -526,6 +553,43 @@ def create_app(
 
     # --- results to prose ---
 
+    def _figures(study_id: Optional[str]) -> list[str]:
+        """The page's charts and field pictures, in words computed from the data.
+
+        Built from the catalogue rather than sent by the page, so what the
+        narration is told a chart shows is what the chart was drawn from.
+        A field that cannot be read is left out, not allowed to fail the
+        narration.
+        """
+        if not study_id:
+            return []
+        with Catalog(app.state.store_path) as catalog:
+            found = catalog.study(study_id)
+        if found is None:
+            return []
+        rows = [case["row"] for case in found["cases"]]
+        grid = "sweep_mode: grid" in (found.get("spec_yaml") or "")
+        lines: list[str] = []
+        for chart in study_charts(rows, found["swept"], grid=grid):
+            lines.extend(describe_chart(chart))
+        described = 0
+        for case in found["cases"]:
+            if not case.get("directory") or described >= MAX_DESCRIBED_FIELDS:
+                continue
+            for file in field_files.find_fields(Path(case["directory"])):
+                if described >= MAX_DESCRIBED_FIELDS:
+                    break
+                try:
+                    text = field_files.describe(Path(case["directory"]) / file.path, Path(file.path).name)
+                except Exception:  # noqa: BLE001 - one unreadable file must not stop the narration
+                    continue
+                if text:
+                    if len(found["cases"]) > 1:
+                        text[0] = f"[{case['label']}] " + text[0]
+                    lines.extend(text)
+                    described += 1
+        return lines
+
     @app.post("/api/explain")
     def explain_table(body: ExplainRequest) -> dict[str, Any]:
         """Narrate a finished table.
@@ -540,7 +604,8 @@ def create_app(
         spec = _load_spec(body.spec_yaml) if body.spec_yaml else None
         try:
             result = explain(
-                pd.DataFrame(body.table), spec, llm=llm, question=body.question
+                pd.DataFrame(body.table), spec, llm=llm, question=body.question,
+                figures=_figures(body.study_id),
             )
         except NarrationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -548,9 +613,9 @@ def create_app(
             raise _model_failure(exc) from exc
         return {
             "text": result.text,
-            "unsupported": list(getattr(result, "unsupported", []) or []),
-            "model": getattr(result, "model", None),
-            "elapsed": getattr(result, "elapsed", 0.0),
+            "warnings": list(result.warnings),
+            "model": result.model,
+            "elapsed": result.elapsed,
         }
 
     @app.post("/api/chat")
@@ -570,6 +635,7 @@ def create_app(
                 [m.model_dump() for m in body.messages],
                 spec,
                 llm=llm,
+                figures=_figures(body.study_id),
             )
         except NarrationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc

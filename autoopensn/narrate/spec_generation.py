@@ -468,7 +468,22 @@ def _review(
         return
 
     spec_text = draft.spec.to_yaml()
+    # The scenario's own declarations go in beside the documentation. Without
+    # them the reviewer judges a spec against doc excerpts alone, and every
+    # value that came from the scenario (its default tolerance, its iteration
+    # cap) looks unsupported: on the HDPE tutorial it raised three objections,
+    # all of them values the scenario declares.
+    try:
+        declared = declaration_lines(load_template(draft.spec.template), limit=200)
+    except TemplateError:
+        declared = ""
     context = evidence_block(draft.citations, limit=1600)
+    if declared:
+        context = (
+            f"THE SCENARIO'S DECLARED PARAMETERS ({draft.spec.template}). Authoritative: "
+            "a parameter or value listed here is supported, whether or not the "
+            f"documentation mentions it.\n{declared}\n\n{context}"
+        )
 
     try:
         if not reviewer.should_review(spec_text, draft.citations):
@@ -550,9 +565,15 @@ def _review(
         draft.review_status = "flagged"
         return
 
-    draft.notes.extend(
-        f"Revised after the domain reviewer said: {finding.explanation}" for finding in fixable
-    )
+    if revised.to_yaml() == draft.spec.to_yaml():
+        # Asked to fix the objections with the declarations in front of it, the
+        # model changed nothing: it judged them wrong. Say so, rather than
+        # labelling notes "revised" when nothing was.
+        draft.notes.extend(finding.explanation for finding in fixable)
+        draft.review_status = "flagged"
+        return
+
+    draft.notes.extend(finding.explanation for finding in fixable)
     draft.spec = revised
     draft.revisions = 1
     draft.review_status = "revised"

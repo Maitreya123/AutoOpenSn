@@ -289,3 +289,69 @@ def comparison_chart(
                         {"field": "converged"}],
         },
     }
+
+
+# --- describing charts in words ---------------------------------------------------
+
+
+def _g(value: Any) -> str:
+    """A number as the chart's tooltip would show it: four significant figures."""
+    number = _number(value)
+    return "?" if number is None else f"{number:.4g}"
+
+
+def describe_chart(chart: dict[str, Any]) -> list[str]:
+    """What a chart from this module draws, in plain sentences.
+
+    Built from the chart's own data and encodings, so the words describe the
+    picture on the page exactly: the same points, the same axes, the same
+    unconverged cases. This is what lets the narration explain a chart without
+    ever being shown one.
+    """
+    title = chart.get("title")
+    heading = title.get("text") if isinstance(title, dict) else (title or "Chart")
+    panels = chart.get("concat") or [chart]
+    lines = [f'Chart "{heading}", {len(panels)} panel{"s" if len(panels) != 1 else ""}:']
+    for panel in panels:
+        encoding = panel.get("encoding") or (panel.get("layer") or [{}])[-1].get("encoding", {})
+        values = (panel.get("data") or chart.get("data") or {}).get("values", [])
+        x, y, colour = encoding.get("x", {}), encoding.get("y", {}), encoding.get("color", {})
+        label = panel.get("title") or y.get("title") or colour.get("title") or "value"
+        if isinstance(label, dict):
+            label = label.get("text", "value")
+        mark = panel.get("mark", "line")
+        mark = mark.get("type") if isinstance(mark, dict) else mark
+        if mark == "rect":
+            field = colour.get("field")
+            scale = "log" if colour.get("scale", {}).get("type") == "log" else "linear"
+            cells = "; ".join(f"{v.get('x')}/{v.get('y')} = {_g(v.get(field))}" for v in values
+                              if _number(v.get(field)) is not None)
+            lines.append(f"- Heatmap of {label} ({scale} colour scale, darker is higher) over "
+                         f"{x.get('title')} (across) and {y.get('title')} (down): {cells}.")
+            continue
+        field = y.get("field")
+        x_axis = x.get("title", "x") + (" (log axis)" if x.get("scale", {}).get("type") == "log" else "")
+        y_axis = label + (" (log axis)" if y.get("scale", {}).get("type") == "log" else "")
+        points = [v for v in values if _number(v.get(field)) is not None]
+        if not points:
+            continue
+        kind = "bars" if mark == "bar" else "line"
+        series = colour.get("field") if colour.get("field") == "study" else None
+        shown = "; ".join(
+            f"{v.get('x')} -> {_g(v.get(field))}"
+            + (f" [{v.get('study')}]" if series else "")
+            + (" (did not converge)" if v.get("converged") == "no" else "")
+            for v in points
+        )
+        lowest = min(points, key=lambda v: _number(v[field]))
+        highest = max(points, key=lambda v: _number(v[field]))
+        lines.append(
+            f"- {y_axis} against {x_axis}, drawn as {kind}: {shown}. "
+            f"Lowest {_g(lowest[field])} at {lowest.get('x')}, highest {_g(highest[field])} at {highest.get('x')}."
+        )
+    unconverged = sorted({str(v.get("case")) for p in panels
+                          for v in (p.get("data") or chart.get("data") or {}).get("values", [])
+                          if v.get("converged") == "no"})
+    if unconverged:
+        lines.append("- Drawn in orange with a cross because they did not converge: " + ", ".join(unconverged) + ".")
+    return lines
