@@ -29,7 +29,7 @@ after it, no code fence.
     sweep_mode            one_at_a_time (default) or grid
     reference             parameter overrides for a reference case, if any
     observables           which observables to extract
-    num_procs             MPI ranks per run
+    num_procs             MPI ranks per run; leave it out to use the scenario's own
 
 Any other field is rejected and the study does not run.
 
@@ -92,7 +92,6 @@ sweep_mode: one_at_a_time
 reference:
   l_abs_tol: 1.0e-10
 observables: [sweeps, iterations, wall_time]
-num_procs: 1
 ```
 
 That is four runs: three tolerances plus the reference.

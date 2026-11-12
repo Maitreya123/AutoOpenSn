@@ -116,7 +116,7 @@ def _parse_spec(spec: dict[str, Any]) -> tuple[Optional[Spec], list[str]]:
         template = parsed.validate_against()
     except (SpecError, TemplateError) as exc:
         return None, [str(exc)]
-    if "num_procs" not in spec:
+    if parsed.num_procs is None:
         # The scenario's own rank count, the one its gold values were recorded
         # with. Spec's default of 1 would run an 8-rank tutorial on one rank.
         parsed = parsed.model_copy(update={"num_procs": template.num_procs})

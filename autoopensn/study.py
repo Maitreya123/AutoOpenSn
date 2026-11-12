@@ -135,15 +135,13 @@ def workdir_for(template: Template) -> str:
 def ranks_for(spec: Spec, template: Template) -> int:
     """The MPI ranks to run with: the spec's, if it says, else the scenario's own.
 
-    A spec's default is 1, which would run an eight-rank tutorial on one rank —
-    still the right answer, from a different run than the one its gold values
-    and timings describe. Whether the spec *said* is read from the fields it
-    set, not from the value, so asking for exactly 1 still means 1. The MCP
-    server applied this rule on its own; here it holds for every path.
+    A spec that does not say has ``num_procs`` of None, and stays None through
+    YAML, so an eight-rank tutorial runs on the eight ranks its gold values and
+    timings describe. Asking for exactly 1 still means 1.
     """
-    if "num_procs" in spec.model_fields_set:
+    if spec.num_procs is not None:
         return spec.num_procs
-    return template.num_procs or spec.num_procs
+    return template.num_procs or 1
 
 
 def run_study(

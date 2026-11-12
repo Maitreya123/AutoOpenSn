@@ -275,7 +275,7 @@ def run(
     except (SpecError, TemplateError) as exc:
         _fail(str(exc))
 
-    active_runner = _make_runner(runner, fixtures, loaded.num_procs, host)
+    active_runner = _make_runner(runner, fixtures, loaded.num_procs or 1, host)
 
     def say(message: str) -> None:
         typer.secho(message, err=True, fg=typer.colors.BRIGHT_BLACK)
@@ -371,7 +371,7 @@ def study(
     typer.echo(draft.spec.to_yaml())
     say(draft.summary())
 
-    active_runner = _make_runner(runner, fixtures, draft.spec.num_procs, host)
+    active_runner = _make_runner(runner, fixtures, draft.spec.num_procs or 1, host)
     with RunStore(cache_path) as store:
         try:
             result = run_study(

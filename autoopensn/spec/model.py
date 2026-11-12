@@ -157,7 +157,12 @@ class Spec(BaseModel):
         description="Observables to extract from each run.",
     )
 
-    num_procs: int = Field(default=1, ge=1, le=1024, description="MPI ranks per run.")
+    num_procs: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=1024,
+        description="MPI ranks per run. Left out, each run uses its scenario's own count.",
+    )
     timeout_seconds: float = Field(
         default=1800.0, gt=0, description="Wall-clock ceiling on one run."
     )
@@ -345,8 +350,15 @@ class Spec(BaseModel):
 
     def to_yaml(self) -> str:
         """YAML, ordered as written above rather than alphabetically."""
+        document = self.model_dump(mode="json", exclude_none=False)
+        # Left out, not written as null or as a number: a spec that did not
+        # choose a rank count must still not have chosen one after a round trip
+        # through YAML. Written as 1, every tutorial run from the web page went
+        # out on one rank, HDPE included, which its gold values assume is 8.
+        if document.get("num_procs") is None:
+            document.pop("num_procs", None)
         return yaml.safe_dump(
-            self.model_dump(mode="json", exclude_none=False),
+            document,
             sort_keys=False,
             default_flow_style=False,
             allow_unicode=True,

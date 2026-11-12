@@ -132,3 +132,21 @@ def test_results_at_different_rank_counts_do_not_share_cache_entries(tmp_path):
     one = run(tmp_path, spec(num_procs=1))
     two = run(tmp_path, spec(num_procs=2))
     assert one.cache_hits == [] and two.cache_hits == [], "eight ranks is not one rank's evidence"
+
+
+def test_an_unchosen_rank_count_survives_a_trip_through_yaml():
+    """Every spec from the web page arrives as YAML. It used to arrive saying
+    num_procs: 1, and HDPE ran on one rank instead of eight."""
+    import yaml
+
+    from autoopensn.spec.model import Spec
+    from autoopensn.study import ranks_for
+    from autoopensn.templates import load_template
+
+    template = load_template("hdpe_example")
+    unset = Spec(name="h", template="hdpe_example", observables=["wall_time"])
+    assert "num_procs" not in unset.to_yaml()
+    again = Spec(**yaml.safe_load(unset.to_yaml()))
+    assert ranks_for(again, template) == template.num_procs > 1
+    chosen = Spec(**yaml.safe_load(unset.model_copy(update={"num_procs": 1}).to_yaml()))
+    assert ranks_for(chosen, template) == 1
